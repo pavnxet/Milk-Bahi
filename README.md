@@ -5,10 +5,10 @@ A sleek, mobile-first web application for tracking daily milk delivery. Designed
 ## Features
 
 - **Daily Entry**: Log milk quantity with a simple tap.
-- **Monthly Summary**: Auto-calculates total liters and cost.
-- **Data Persistence**: Uses `localStorage` so data stays on your phone.
-- **Backup & Restore**: Download your data as a file to keep it safe in your phone storage.
-- **Cloud Sync (Optional)**: Connect to Firebase for real-time cloud backup.
+- **Analytics**: Visualize daily milk usage and expenses with interactive charts.
+- **History**: View and manage all past entries in a dedicated list.
+- **Data Persistence**: Automatically saves data to a local file in your device's Documents folder.
+- **Backup & Restore**: Manual backup option available.
 - **Installable (APK)**: Native Android APK build available via GitHub Actions.
 - **WhatsApp Export**: Send monthly reports directly to your milkman.
 
@@ -43,4 +43,4 @@ To restore data later:
 
 - **Stack**: HTML, CSS, JavaScript (Vanilla).
 - **Framework**: Capacitor (Hybrid App).
-- **Build**: GitHub Actions (Android Debug Build).
+- **Build**: `npm run build` (uses esbuild) + GitHub Actions.

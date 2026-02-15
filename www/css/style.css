@@ -165,8 +165,7 @@
 
         /* History List */
         .history-list {
-            max-height: 300px;
-            overflow-y: auto;
+            /* Full height for tab view */
         }
         .history-item {
             display: flex;
@@ -181,7 +180,7 @@
         /* Fab */
         .fab {
             position: fixed;
-            bottom: 30px;
+            bottom: 100px; /* Adjusted for bottom nav */
             right: 30px;
             width: 60px;
             height: 60px;
@@ -221,3 +220,59 @@
         .close-btn { background: none; border: none; font-size: 24px; color: var(--text-color); width: auto; padding: 0; }
 
         .hidden { display: none !important; }
+
+        /* Tabs */
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+            padding-bottom: 80px; /* Space for bottom nav */
+        }
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Bottom Nav */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-top: var(--glass-border);
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+            padding-bottom: calc(10px + env(safe-area-inset-bottom));
+            z-index: 1000;
+        }
+
+        .nav-item {
+            background: transparent;
+            border: none;
+            color: var(--secondary-text);
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            padding: 5px;
+            width: auto;
+        }
+
+        .nav-item.active {
+            color: var(--accent-color);
+        }
+
+        .nav-item svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
