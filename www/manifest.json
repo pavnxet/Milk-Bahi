@@ -1,6 +1,6 @@
 {
-  "name": "Milk Tracker",
-  "short_name": "MilkTrack",
+  "name": "Milk Bahi",
+  "short_name": "MilkBahi",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#f0f2f5",
@@ -8,9 +8,9 @@
   "description": "Daily milk tracking app for Mom.",
   "icons": [
     {
-      "src": "icons/icon.svg",
-      "type": "image/svg+xml",
-      "sizes": "192x192 512x512"
+      "src": "icons/icon.png",
+      "type": "image/png",
+      "sizes": "512x512"
     }
   ]
 }
