@@ -1346,6 +1346,7 @@ var LocalNotifications = registerPlugin("LocalNotifications", {
 var STORAGE_KEY = "milk_tracker_data";
 var PRICE_COW_KEY = "milk_tracker_price_cow";
 var PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
+var MONTHLY_TARGET_KEY = "milk_tracker_monthly_target";
 var THEME_KEY = "milk_tracker_theme";
 var REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
 var REMINDER_TIME_KEY = "milk_tracker_reminder_time";
@@ -1354,9 +1355,10 @@ var DATA_FILE = "data.json";
 var state = {
   data: {},
   // { "YYYY-MM-DD": { cow: float, buffalo: float } }
-  cowPrice: 60,
-  buffaloPrice: 70,
+  cowPrice: 40,
+  buffaloPrice: 55,
   // Default buffalo price
+  monthlyTarget: 0,
   currentDate: (() => {
     const d = /* @__PURE__ */ new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -1377,11 +1379,15 @@ var qtyCowDisplay = document.getElementById("qty-cow");
 var decBuffBtn = document.getElementById("dec-buff");
 var incBuffBtn = document.getElementById("inc-buff");
 var qtyBuffDisplay = document.getElementById("qty-buff");
+var entryNoteInput = document.getElementById("entry-note");
 var saveBtn = document.getElementById("save-entry-btn");
 var copyYesterdayBtn = document.getElementById("copy-yesterday-btn");
 var totalCowEl = document.getElementById("total-cow");
 var totalBuffaloEl = document.getElementById("total-buffalo");
 var totalCostEl = document.getElementById("total-cost");
+var goalSection = document.getElementById("goal-section");
+var goalText = document.getElementById("goal-text");
+var goalBar = document.getElementById("goal-bar");
 var historyListEl = document.getElementById("history-list");
 var currentMonthDisplay = document.getElementById("current-month-display");
 var settingsBtn = document.getElementById("settings-btn");
@@ -1389,6 +1395,7 @@ var settingsModal = document.getElementById("settings-modal");
 var closeSettingsBtn = document.getElementById("close-settings");
 var priceCowInput = document.getElementById("price-cow-setting");
 var priceBuffaloInput = document.getElementById("price-buffalo-setting");
+var monthlyTargetInput = document.getElementById("monthly-target-setting");
 var themeToggle = document.getElementById("theme-toggle");
 var reminderToggle = document.getElementById("reminder-toggle");
 var reminderTimeInput = document.getElementById("reminder-time");
@@ -1401,6 +1408,8 @@ async function init() {
   if (savedCowPrice) state.cowPrice = parseFloat(savedCowPrice);
   const savedBuffaloPrice = localStorage.getItem(PRICE_BUFFALO_KEY);
   if (savedBuffaloPrice) state.buffaloPrice = parseFloat(savedBuffaloPrice);
+  const savedTarget = localStorage.getItem(MONTHLY_TARGET_KEY);
+  if (savedTarget) state.monthlyTarget = parseFloat(savedTarget);
   const savedTheme = localStorage.getItem(THEME_KEY);
   if (savedTheme === "dark") {
     state.isDark = true;
@@ -1421,6 +1430,7 @@ async function init() {
   dateInput.value = state.currentDate;
   priceCowInput.value = state.cowPrice;
   priceBuffaloInput.value = state.buffaloPrice;
+  if (state.monthlyTarget > 0) monthlyTargetInput.value = state.monthlyTarget;
   showDashboard();
   await loadData();
 }
@@ -1463,6 +1473,7 @@ async function loadData() {
   if (state.data[today]) {
     currentCow = state.data[today].cow || 0;
     currentBuff = state.data[today].buffalo || 0;
+    if (state.data[today].note) entryNoteInput.value = state.data[today].note;
     updateDisplay();
   }
   renderSummary();
@@ -1521,7 +1532,10 @@ saveBtn.addEventListener("click", async () => {
   const date = dateInput.value;
   if (!date) return alert("Please select a date");
   if (currentCow === 0 && currentBuff === 0) return alert("Please add some milk!");
-  await saveData(date, { cow: currentCow, buffalo: currentBuff });
+  const note = entryNoteInput.value.trim();
+  const entry = { cow: currentCow, buffalo: currentBuff };
+  if (note) entry.note = note;
+  await saveData(date, entry);
   alert("Saved!");
 });
 function renderDate(date) {
@@ -1549,6 +1563,17 @@ function renderSummary() {
   totalCowEl.innerText = `${totalCow}L`;
   totalBuffaloEl.innerText = `${totalBuff}L`;
   totalCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
+  if (state.monthlyTarget > 0) {
+    goalSection.style.display = "block";
+    const totalMilk = totalCow + totalBuff;
+    const percentage = Math.min(totalMilk / state.monthlyTarget * 100, 100);
+    goalText.innerText = `${totalMilk.toFixed(1)} / ${state.monthlyTarget} L`;
+    goalBar.style.width = `${percentage}%`;
+    if (percentage >= 100) goalBar.style.background = "var(--success-color)";
+    else goalBar.style.background = "var(--accent-color)";
+  } else {
+    goalSection.style.display = "none";
+  }
 }
 function renderFullHistory() {
   const entries = Object.entries(state.data).sort((a, b) => b[0].localeCompare(a[0]));
@@ -1564,6 +1589,10 @@ function renderFullHistory() {
     rightDiv.style.display = "flex";
     rightDiv.style.alignItems = "center";
     rightDiv.style.gap = "10px";
+    const detailsDiv = document.createElement("div");
+    detailsDiv.style.display = "flex";
+    detailsDiv.style.flexDirection = "column";
+    detailsDiv.style.alignItems = "flex-end";
     const amountSpan = document.createElement("span");
     amountSpan.className = "history-amount";
     const cowQty = qty.cow || 0;
@@ -1574,6 +1603,14 @@ function renderFullHistory() {
     if (text === "") text = "0L";
     amountSpan.textContent = text;
     amountSpan.style.fontSize = "12px";
+    detailsDiv.appendChild(amountSpan);
+    if (qty.note) {
+      const noteSpan = document.createElement("span");
+      noteSpan.innerText = qty.note;
+      noteSpan.style.fontSize = "10px";
+      noteSpan.style.color = "var(--secondary-text)";
+      detailsDiv.appendChild(noteSpan);
+    }
     const deleteBtn = document.createElement("button");
     deleteBtn.innerHTML = "\u{1F5D1}\uFE0F";
     deleteBtn.className = "icon-btn";
@@ -1583,7 +1620,7 @@ function renderFullHistory() {
       e.stopPropagation();
       deleteEntry(date);
     };
-    rightDiv.appendChild(amountSpan);
+    rightDiv.appendChild(detailsDiv);
     rightDiv.appendChild(deleteBtn);
     item.appendChild(dateSpan);
     item.appendChild(rightDiv);
@@ -1597,10 +1634,12 @@ dateInput.addEventListener("change", () => {
     const entry = state.data[date];
     currentCow = entry.cow || 0;
     currentBuff = entry.buffalo || 0;
+    entryNoteInput.value = entry.note || "";
     copyYesterdayBtn.style.display = "none";
   } else {
     currentCow = 0;
     currentBuff = 0;
+    entryNoteInput.value = "";
     const d = new Date(date);
     d.setDate(d.getDate() - 1);
     const yStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -1610,6 +1649,7 @@ dateInput.addEventListener("change", () => {
         const yEntry = state.data[yStr];
         currentCow = yEntry.cow || 0;
         currentBuff = yEntry.buffalo || 0;
+        entryNoteInput.value = "";
         updateDisplay();
         copyYesterdayBtn.style.display = "none";
       };
@@ -1630,6 +1670,11 @@ priceCowInput.addEventListener("change", (e) => {
 priceBuffaloInput.addEventListener("change", (e) => {
   state.buffaloPrice = parseFloat(e.target.value);
   localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
+  renderSummary();
+});
+monthlyTargetInput.addEventListener("change", (e) => {
+  state.monthlyTarget = parseFloat(e.target.value) || 0;
+  localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
   renderSummary();
 });
 themeToggle.addEventListener("change", (e) => {
@@ -1706,6 +1751,7 @@ backupBtn.addEventListener("click", async () => {
       settings: {
         cowPrice: state.cowPrice,
         buffaloPrice: state.buffaloPrice,
+        monthlyTarget: state.monthlyTarget,
         isDark: state.isDark,
         reminderEnabled: state.reminderEnabled,
         reminderTime: state.reminderTime
@@ -1735,6 +1781,7 @@ backupBtn.addEventListener("click", async () => {
       settings: {
         cowPrice: state.cowPrice,
         buffaloPrice: state.buffaloPrice,
+        monthlyTarget: state.monthlyTarget,
         isDark: state.isDark,
         reminderEnabled: state.reminderEnabled,
         reminderTime: state.reminderTime
@@ -1772,10 +1819,12 @@ restoreInput.addEventListener("change", (e) => {
           for (const [key, val] of Object.entries(imported.data)) {
             if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
             if (typeof val !== "object") continue;
-            sanitizedData[key] = {
+            const entry = {
               cow: typeof val.cow === "number" ? val.cow : 0,
               buffalo: typeof val.buffalo === "number" ? val.buffalo : 0
             };
+            if (typeof val.note === "string") entry.note = val.note;
+            sanitizedData[key] = entry;
           }
           newData = sanitizedData;
           if (typeof imported.settings.cowPrice === "number") {
@@ -1787,6 +1836,11 @@ restoreInput.addEventListener("change", (e) => {
             state.buffaloPrice = imported.settings.buffaloPrice;
             localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
             priceBuffaloInput.value = state.buffaloPrice;
+          }
+          if (typeof imported.settings.monthlyTarget === "number") {
+            state.monthlyTarget = imported.settings.monthlyTarget;
+            localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
+            monthlyTargetInput.value = state.monthlyTarget;
           }
           if (typeof imported.settings.isDark === "boolean") {
             state.isDark = imported.settings.isDark;

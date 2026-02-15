@@ -63,6 +63,17 @@
                             <div class="stat-label">Cost</div>
                         </div>
                     </div>
+
+                    <!-- Monthly Goal Progress -->
+                    <div id="goal-section" style="margin-top: 15px; display: none;">
+                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: var(--secondary-text); margin-bottom: 4px;">
+                            <span>Monthly Goal</span>
+                            <span id="goal-text">0 / 0 L</span>
+                        </div>
+                        <div style="width: 100%; height: 6px; background: rgba(0,0,0,0.1); border-radius: 3px; overflow: hidden;">
+                            <div id="goal-bar" style="height: 100%; background: var(--accent-color); width: 0%;"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Add Entry Card -->
@@ -91,6 +102,12 @@
                             <span id="qty-buff" style="font-size: 18px; font-weight: 600; min-width: 30px; text-align: center;">0.0</span>
                             <button class="circle-btn secondary" id="inc-buff">+</button>
                         </div>
+                    </div>
+
+                    <!-- Note Input -->
+                    <div style="margin-top: 15px;">
+                        <label style="font-size: 12px; color: var(--secondary-text);">Note (Optional)</label>
+                        <input type="text" id="entry-note" placeholder="e.g. Extra fat, Late delivery" style="margin-bottom: 0;">
                     </div>
 
                     <div style="margin-top: 20px;">
@@ -179,11 +196,17 @@
 
             <div style="margin-bottom: 20px;">
                 <label>Cow Price (₹)</label>
-                <input type="number" id="price-cow-setting" value="60">
+                <input type="number" id="price-cow-setting" value="40">
             </div>
              <div style="margin-bottom: 20px;">
                 <label>Buffalo Price (₹)</label>
-                <input type="number" id="price-buffalo-setting" value="70">
+                <input type="number" id="price-buffalo-setting" value="55">
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label>Monthly Target (L)</label>
+                <input type="number" id="monthly-target-setting" placeholder="Optional" value="">
+                <p style="font-size: 10px; color: var(--secondary-text);">Set a goal for total milk volume per month.</p>
             </div>
 
             <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
