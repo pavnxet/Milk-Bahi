@@ -140,6 +140,8 @@ loginBtn.addEventListener('click', async () => {
         state.isAuthenticated = true;
         showDashboard();
         loadData();
+        // Hide keyboard
+        secretCodeInput.blur();
     } else if (db && auth) {
         // Try Firebase Auth
         try {

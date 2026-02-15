@@ -9,15 +9,22 @@ A sleek, mobile-first web application for tracking daily milk delivery. Designed
 - **Data Persistence**: Uses `localStorage` so data stays on your phone.
 - **Backup & Restore**: Download your data as a file to keep it safe in your phone storage.
 - **Cloud Sync (Optional)**: Connect to Firebase for real-time cloud backup.
-- **Installable (PWA)**: Add to your home screen for an app-like experience.
+- **Installable (APK)**: Native Android APK build available via GitHub Actions.
 - **WhatsApp Export**: Send monthly reports directly to your milkman.
 
-## How to Install as an App (Android)
+## How to Install (Android APK)
 
-1. Open the website in **Chrome** on your Android phone.
-2. Tap the **three dots** (menu) in the top-right corner.
-3. Tap **"Add to Home screen"** or **"Install App"**.
-4. The Milk Tracker icon will appear on your home screen.
+1. Go to the **Releases** section of this repository.
+2. Download the latest `app-debug.apk`.
+3. Open the file on your Android phone and install it (you may need to allow installation from unknown sources).
+
+## How to Build the APK (GitHub Actions)
+
+1. Go to the **Actions** tab in this repository.
+2. Select the **Build Android APK** workflow on the left.
+3. Click **Run workflow** (button on the right).
+4. Wait for the build to complete.
+5. The new APK will be available in the **Releases** section or as an artifact.
 
 ## How to Backup Data
 
@@ -35,5 +42,5 @@ To restore data later:
 ## Technical Details
 
 - **Stack**: HTML, CSS, JavaScript (Vanilla).
-- **PWA**: Service Worker for offline support + Manifest for installation.
-- **Hosting**: Ready for GitHub Pages.
+- **Framework**: Capacitor (Hybrid App).
+- **Build**: GitHub Actions (Android Debug Build).
