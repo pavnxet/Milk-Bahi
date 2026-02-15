@@ -59,3 +59,4 @@ jobs:
           files: android/app/build/outputs/apk/debug/MilkBahi_v2.01.apk
           draft: false
           prerelease: false
+          make_latest: true

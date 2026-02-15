@@ -906,40 +906,15 @@ if (checkUpdateBtn) {
 
 if (shareAppBtn) {
     shareAppBtn.addEventListener('click', async () => {
-        shareAppBtn.innerText = "Fetching Link...";
         try {
-            // Fetch latest release from GitHub API
-            const response = await fetch('https://api.github.com/repos/pavnxet/Milk-Bahi/releases/latest');
-            if (!response.ok) throw new Error("Network response was not ok");
-
-            const data = await response.json();
-
-            // Find the asset that ends with .apk
-            const apkAsset = data.assets.find(asset => asset.name.endsWith('.apk'));
-
-            let downloadUrl = 'https://github.com/pavnxet/Milk-Bahi/releases'; // Fallback
-            if (apkAsset && apkAsset.browser_download_url) {
-                downloadUrl = apkAsset.browser_download_url;
-            }
-
             await Share.share({
                 title: 'Milk Bahi App',
                 text: "Check out Milk Bahi! I use it to track my daily milk expenses. It's simple and effective. Download the latest version here:",
-                url: downloadUrl,
+                url: 'https://github.com/pavnxet/Milk-Bahi/releases/latest/download/MilkBahi_v2.01.apk',
                 dialogTitle: 'Share App'
             });
-
         } catch (error) {
-            console.error("Error fetching release:", error);
-            // Fallback share if API fails
-            await Share.share({
-                title: 'Milk Bahi App',
-                text: "Check out Milk Bahi! Download it here:",
-                url: 'https://github.com/pavnxet/Milk-Bahi/releases',
-                dialogTitle: 'Share App'
-            });
-        } finally {
-            shareAppBtn.innerText = "Share App";
+            console.error("Error sharing:", error);
         }
     });
 }
