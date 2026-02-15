@@ -1106,6 +1106,209 @@ var init_web = __esm({
   }
 });
 
+// node_modules/@capacitor/share/dist/esm/web.js
+var web_exports2 = {};
+__export(web_exports2, {
+  ShareWeb: () => ShareWeb
+});
+var ShareWeb;
+var init_web2 = __esm({
+  "node_modules/@capacitor/share/dist/esm/web.js"() {
+    init_dist();
+    ShareWeb = class extends WebPlugin {
+      async canShare() {
+        if (typeof navigator === "undefined" || !navigator.share) {
+          return { value: false };
+        } else {
+          return { value: true };
+        }
+      }
+      async share(options) {
+        if (typeof navigator === "undefined" || !navigator.share) {
+          throw this.unavailable("Share API not available in this browser");
+        }
+        await navigator.share({
+          title: options.title,
+          text: options.text,
+          url: options.url
+        });
+        return {};
+      }
+    };
+  }
+});
+
+// node_modules/@capacitor/local-notifications/dist/esm/web.js
+var web_exports3 = {};
+__export(web_exports3, {
+  LocalNotificationsWeb: () => LocalNotificationsWeb
+});
+var LocalNotificationsWeb;
+var init_web3 = __esm({
+  "node_modules/@capacitor/local-notifications/dist/esm/web.js"() {
+    init_dist();
+    LocalNotificationsWeb = class extends WebPlugin {
+      constructor() {
+        super(...arguments);
+        this.pending = [];
+        this.deliveredNotifications = [];
+        this.hasNotificationSupport = () => {
+          if (!("Notification" in window) || !Notification.requestPermission) {
+            return false;
+          }
+          if (Notification.permission !== "granted") {
+            try {
+              new Notification("");
+            } catch (e) {
+              if (e.name == "TypeError") {
+                return false;
+              }
+            }
+          }
+          return true;
+        };
+      }
+      async getDeliveredNotifications() {
+        const deliveredSchemas = [];
+        for (const notification of this.deliveredNotifications) {
+          const deliveredSchema = {
+            title: notification.title,
+            id: parseInt(notification.tag),
+            body: notification.body
+          };
+          deliveredSchemas.push(deliveredSchema);
+        }
+        return {
+          notifications: deliveredSchemas
+        };
+      }
+      async removeDeliveredNotifications(delivered) {
+        for (const toRemove of delivered.notifications) {
+          const found = this.deliveredNotifications.find((n) => n.tag === String(toRemove.id));
+          found === null || found === void 0 ? void 0 : found.close();
+          this.deliveredNotifications = this.deliveredNotifications.filter(() => !found);
+        }
+      }
+      async removeAllDeliveredNotifications() {
+        for (const notification of this.deliveredNotifications) {
+          notification.close();
+        }
+        this.deliveredNotifications = [];
+      }
+      async createChannel() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async deleteChannel() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async listChannels() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async schedule(options) {
+        if (!this.hasNotificationSupport()) {
+          throw this.unavailable("Notifications not supported in this browser.");
+        }
+        for (const notification of options.notifications) {
+          this.sendNotification(notification);
+        }
+        return {
+          notifications: options.notifications.map((notification) => ({
+            id: notification.id
+          }))
+        };
+      }
+      async getPending() {
+        return {
+          notifications: this.pending
+        };
+      }
+      async registerActionTypes() {
+        throw this.unimplemented("Not implemented on web.");
+      }
+      async cancel(pending) {
+        this.pending = this.pending.filter((notification) => !pending.notifications.find((n) => n.id === notification.id));
+      }
+      async areEnabled() {
+        const { display } = await this.checkPermissions();
+        return {
+          value: display === "granted"
+        };
+      }
+      async requestPermissions() {
+        if (!this.hasNotificationSupport()) {
+          throw this.unavailable("Notifications not supported in this browser.");
+        }
+        const display = this.transformNotificationPermission(await Notification.requestPermission());
+        return { display };
+      }
+      async checkPermissions() {
+        if (!this.hasNotificationSupport()) {
+          throw this.unavailable("Notifications not supported in this browser.");
+        }
+        const display = this.transformNotificationPermission(Notification.permission);
+        return { display };
+      }
+      transformNotificationPermission(permission) {
+        switch (permission) {
+          case "granted":
+            return "granted";
+          case "denied":
+            return "denied";
+          default:
+            return "prompt";
+        }
+      }
+      sendPending() {
+        var _a;
+        const toRemove = [];
+        const now = (/* @__PURE__ */ new Date()).getTime();
+        for (const notification of this.pending) {
+          if (((_a = notification.schedule) === null || _a === void 0 ? void 0 : _a.at) && notification.schedule.at.getTime() <= now) {
+            this.buildNotification(notification);
+            toRemove.push(notification);
+          }
+        }
+        this.pending = this.pending.filter((notification) => !toRemove.find((n) => n === notification));
+      }
+      sendNotification(notification) {
+        var _a;
+        if ((_a = notification.schedule) === null || _a === void 0 ? void 0 : _a.at) {
+          const diff = notification.schedule.at.getTime() - (/* @__PURE__ */ new Date()).getTime();
+          this.pending.push(notification);
+          setTimeout(() => {
+            this.sendPending();
+          }, diff);
+          return;
+        }
+        this.buildNotification(notification);
+      }
+      buildNotification(notification) {
+        const localNotification = new Notification(notification.title, {
+          body: notification.body,
+          tag: String(notification.id)
+        });
+        localNotification.addEventListener("click", this.onClick.bind(this, notification), false);
+        localNotification.addEventListener("show", this.onShow.bind(this, notification), false);
+        localNotification.addEventListener("close", () => {
+          this.deliveredNotifications = this.deliveredNotifications.filter(() => !this);
+        }, false);
+        this.deliveredNotifications.push(localNotification);
+        return localNotification;
+      }
+      onClick(notification) {
+        const data = {
+          actionId: "tap",
+          notification
+        };
+        this.notifyListeners("localNotificationActionPerformed", data);
+      }
+      onShow(notification) {
+        this.notifyListeners("localNotificationReceived", notification);
+      }
+    };
+  }
+});
+
 // node_modules/@capacitor/filesystem/dist/esm/index.js
 init_dist();
 init_definitions();
@@ -1113,11 +1316,39 @@ var Filesystem = registerPlugin("Filesystem", {
   web: () => Promise.resolve().then(() => (init_web(), web_exports)).then((m) => new m.FilesystemWeb())
 });
 
+// node_modules/@capacitor/share/dist/esm/index.js
+init_dist();
+var Share = registerPlugin("Share", {
+  web: () => Promise.resolve().then(() => (init_web2(), web_exports2)).then((m) => new m.ShareWeb())
+});
+
+// node_modules/@capacitor/local-notifications/dist/esm/index.js
+init_dist();
+
+// node_modules/@capacitor/local-notifications/dist/esm/definitions.js
+var Weekday;
+(function(Weekday2) {
+  Weekday2[Weekday2["Sunday"] = 1] = "Sunday";
+  Weekday2[Weekday2["Monday"] = 2] = "Monday";
+  Weekday2[Weekday2["Tuesday"] = 3] = "Tuesday";
+  Weekday2[Weekday2["Wednesday"] = 4] = "Wednesday";
+  Weekday2[Weekday2["Thursday"] = 5] = "Thursday";
+  Weekday2[Weekday2["Friday"] = 6] = "Friday";
+  Weekday2[Weekday2["Saturday"] = 7] = "Saturday";
+})(Weekday || (Weekday = {}));
+
+// node_modules/@capacitor/local-notifications/dist/esm/index.js
+var LocalNotifications = registerPlugin("LocalNotifications", {
+  web: () => Promise.resolve().then(() => (init_web3(), web_exports3)).then((m) => new m.LocalNotificationsWeb())
+});
+
 // src/app.js
 var STORAGE_KEY = "milk_tracker_data";
 var PRICE_COW_KEY = "milk_tracker_price_cow";
 var PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
 var THEME_KEY = "milk_tracker_theme";
+var REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
+var REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 var DATA_FOLDER = "MilkTracker";
 var DATA_FILE = "data.json";
 var state = {
@@ -1130,7 +1361,9 @@ var state = {
     const d = /* @__PURE__ */ new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   })(),
-  isDark: false
+  isDark: false,
+  reminderEnabled: false,
+  reminderTime: "08:00"
 };
 var loginScreen = document.getElementById("login-screen");
 var dashboard = document.getElementById("dashboard");
@@ -1157,6 +1390,8 @@ var closeSettingsBtn = document.getElementById("close-settings");
 var priceCowInput = document.getElementById("price-cow-setting");
 var priceBuffaloInput = document.getElementById("price-buffalo-setting");
 var themeToggle = document.getElementById("theme-toggle");
+var reminderToggle = document.getElementById("reminder-toggle");
+var reminderTimeInput = document.getElementById("reminder-time");
 var logoutBtn = document.getElementById("logout-btn");
 var whatsappFab = document.getElementById("whatsapp-fab");
 var backupBtn = document.getElementById("backup-btn");
@@ -1172,6 +1407,17 @@ async function init() {
     state.isDark = true;
     document.body.setAttribute("data-theme", "dark");
     themeToggle.checked = true;
+  }
+  const savedReminder = localStorage.getItem(REMINDER_ENABLED_KEY);
+  if (savedReminder === "true") {
+    state.reminderEnabled = true;
+    reminderToggle.checked = true;
+    reminderTimeInput.style.display = "block";
+  }
+  const savedTime = localStorage.getItem(REMINDER_TIME_KEY);
+  if (savedTime) {
+    state.reminderTime = savedTime;
+    reminderTimeInput.value = savedTime;
   }
   dateInput.value = state.currentDate;
   priceCowInput.value = state.cowPrice;
@@ -1392,17 +1638,85 @@ themeToggle.addEventListener("change", (e) => {
   document.body.setAttribute("data-theme", state.isDark ? "dark" : "light");
   localStorage.setItem(THEME_KEY, state.isDark ? "dark" : "light");
 });
-backupBtn.addEventListener("click", () => {
-  const dataStr = JSON.stringify(state.data, null, 2);
-  const blob = new Blob([dataStr], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `milk-tracker-backup-${state.currentDate}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+async function scheduleNotification() {
+  if (!state.reminderEnabled) return;
+  try {
+    const result = await LocalNotifications.requestPermissions();
+    if (result.display !== "granted") {
+      alert("Notification permission required for reminders.");
+      state.reminderEnabled = false;
+      reminderToggle.checked = false;
+      localStorage.setItem(REMINDER_ENABLED_KEY, "false");
+      return;
+    }
+    const [hours, minutes] = state.reminderTime.split(":").map(Number);
+    await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+    await LocalNotifications.schedule({
+      notifications: [{
+        title: "Milk Bahi",
+        body: "Don't forget to add today's milk entry! \u{1F95B}",
+        id: 1,
+        schedule: {
+          on: {
+            hour: hours,
+            minute: minutes
+          },
+          allowWhileIdle: true
+        }
+      }]
+    });
+  } catch (e) {
+    console.error("Error scheduling notification", e);
+  }
+}
+reminderToggle.addEventListener("change", async (e) => {
+  state.reminderEnabled = e.target.checked;
+  localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+  if (state.reminderEnabled) {
+    reminderTimeInput.style.display = "block";
+    await scheduleNotification();
+  } else {
+    reminderTimeInput.style.display = "none";
+    await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+  }
+});
+reminderTimeInput.addEventListener("change", async (e) => {
+  state.reminderTime = e.target.value;
+  localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+  if (state.reminderEnabled) {
+    await scheduleNotification();
+  }
+});
+backupBtn.addEventListener("click", async () => {
+  try {
+    const dataStr = JSON.stringify(state.data, null, 2);
+    const fileName = `milk-tracker-backup-${state.currentDate}.json`;
+    const result = await Filesystem.writeFile({
+      path: fileName,
+      data: dataStr,
+      directory: Directory.Cache,
+      // Use Cache for temporary sharing
+      encoding: Encoding.UTF8
+    });
+    await Share.share({
+      title: "Backup Milk Data",
+      text: "Here is your milk tracker backup.",
+      url: result.uri,
+      dialogTitle: "Save Backup"
+    });
+  } catch (e) {
+    console.error("Backup failed", e);
+    const dataStr = JSON.stringify(state.data, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `milk-tracker-backup-${state.currentDate}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 });
 restoreBtn.addEventListener("click", () => {
   restoreInput.click();

@@ -1,10 +1,14 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 // --- Constants ---
 const STORAGE_KEY = "milk_tracker_data";
 const PRICE_COW_KEY = "milk_tracker_price_cow";
 const PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
 const THEME_KEY = "milk_tracker_theme";
+const REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
+const REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 const DATA_FOLDER = "MilkTracker";
 const DATA_FILE = "data.json";
 
@@ -17,7 +21,9 @@ let state = {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     })(),
-    isDark: false
+    isDark: false,
+    reminderEnabled: false,
+    reminderTime: '08:00'
 };
 
 // --- UI Elements ---
@@ -52,6 +58,8 @@ const closeSettingsBtn = document.getElementById('close-settings');
 const priceCowInput = document.getElementById('price-cow-setting');
 const priceBuffaloInput = document.getElementById('price-buffalo-setting');
 const themeToggle = document.getElementById('theme-toggle');
+const reminderToggle = document.getElementById('reminder-toggle');
+const reminderTimeInput = document.getElementById('reminder-time');
 const logoutBtn = document.getElementById('logout-btn');
 const whatsappFab = document.getElementById('whatsapp-fab');
 
@@ -74,6 +82,19 @@ async function init() {
         state.isDark = true;
         document.body.setAttribute('data-theme', 'dark');
         themeToggle.checked = true;
+    }
+
+    const savedReminder = localStorage.getItem(REMINDER_ENABLED_KEY);
+    if (savedReminder === 'true') {
+        state.reminderEnabled = true;
+        reminderToggle.checked = true;
+        reminderTimeInput.style.display = 'block';
+    }
+
+    const savedTime = localStorage.getItem(REMINDER_TIME_KEY);
+    if (savedTime) {
+        state.reminderTime = savedTime;
+        reminderTimeInput.value = savedTime;
     }
 
     // Set today's date
@@ -345,19 +366,100 @@ themeToggle.addEventListener('change', (e) => {
     localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
 });
 
-// --- Backup & Restore Logic ---
-backupBtn.addEventListener('click', () => {
-    const dataStr = JSON.stringify(state.data, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+// --- Notifications Logic ---
+async function scheduleNotification() {
+    if (!state.reminderEnabled) return;
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `milk-tracker-backup-${state.currentDate}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+        const result = await LocalNotifications.requestPermissions();
+        if (result.display !== 'granted') {
+            alert("Notification permission required for reminders.");
+            state.reminderEnabled = false;
+            reminderToggle.checked = false;
+            localStorage.setItem(REMINDER_ENABLED_KEY, 'false');
+            return;
+        }
+
+        const [hours, minutes] = state.reminderTime.split(':').map(Number);
+
+        await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+        await LocalNotifications.schedule({
+            notifications: [{
+                title: "Milk Bahi",
+                body: "Don't forget to add today's milk entry! 🥛",
+                id: 1,
+                schedule: {
+                    on: {
+                        hour: hours,
+                        minute: minutes
+                    },
+                    allowWhileIdle: true
+                }
+            }]
+        });
+        // alert(`Reminder set for ${state.reminderTime}`);
+    } catch (e) {
+        console.error("Error scheduling notification", e);
+    }
+}
+
+reminderToggle.addEventListener('change', async (e) => {
+    state.reminderEnabled = e.target.checked;
+    localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+
+    if (state.reminderEnabled) {
+        reminderTimeInput.style.display = 'block';
+        await scheduleNotification();
+    } else {
+        reminderTimeInput.style.display = 'none';
+        await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+    }
+});
+
+reminderTimeInput.addEventListener('change', async (e) => {
+    state.reminderTime = e.target.value;
+    localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+    if (state.reminderEnabled) {
+        await scheduleNotification();
+    }
+});
+
+// --- Backup & Restore Logic ---
+backupBtn.addEventListener('click', async () => {
+    try {
+        const dataStr = JSON.stringify(state.data, null, 2);
+        const fileName = `milk-tracker-backup-${state.currentDate}.json`;
+
+        // Write to cache or documents
+        const result = await Filesystem.writeFile({
+            path: fileName,
+            data: dataStr,
+            directory: Directory.Cache, // Use Cache for temporary sharing
+            encoding: Encoding.UTF8
+        });
+
+        // Share the file
+        await Share.share({
+            title: 'Backup Milk Data',
+            text: 'Here is your milk tracker backup.',
+            url: result.uri,
+            dialogTitle: 'Save Backup'
+        });
+
+    } catch (e) {
+        console.error("Backup failed", e);
+        // Fallback to browser download if Share fails (e.g. desktop)
+        const dataStr = JSON.stringify(state.data, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `milk-tracker-backup-${state.currentDate}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
 });
 
 restoreBtn.addEventListener('click', () => {
