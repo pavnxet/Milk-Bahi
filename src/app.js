@@ -60,7 +60,6 @@ const priceBuffaloInput = document.getElementById('price-buffalo-setting');
 const themeToggle = document.getElementById('theme-toggle');
 const reminderToggle = document.getElementById('reminder-toggle');
 const reminderTimeInput = document.getElementById('reminder-time');
-const logoutBtn = document.getElementById('logout-btn');
 const whatsappFab = document.getElementById('whatsapp-fab');
 
 // Backup/Restore Elements
@@ -427,7 +426,20 @@ reminderTimeInput.addEventListener('change', async (e) => {
 // --- Backup & Restore Logic ---
 backupBtn.addEventListener('click', async () => {
     try {
-        const dataStr = JSON.stringify(state.data, null, 2);
+        const backupObject = {
+            version: 1,
+            timestamp: Date.now(),
+            settings: {
+                cowPrice: state.cowPrice,
+                buffaloPrice: state.buffaloPrice,
+                isDark: state.isDark,
+                reminderEnabled: state.reminderEnabled,
+                reminderTime: state.reminderTime
+            },
+            data: state.data
+        };
+
+        const dataStr = JSON.stringify(backupObject, null, 2);
         const fileName = `milk-tracker-backup-${state.currentDate}.json`;
 
         // Write to cache or documents
@@ -449,7 +461,19 @@ backupBtn.addEventListener('click', async () => {
     } catch (e) {
         console.error("Backup failed", e);
         // Fallback to browser download if Share fails (e.g. desktop)
-        const dataStr = JSON.stringify(state.data, null, 2);
+        const backupObject = {
+            version: 1,
+            timestamp: Date.now(),
+            settings: {
+                cowPrice: state.cowPrice,
+                buffaloPrice: state.buffaloPrice,
+                isDark: state.isDark,
+                reminderEnabled: state.reminderEnabled,
+                reminderTime: state.reminderTime
+            },
+            data: state.data
+        };
+        const dataStr = JSON.stringify(backupObject, null, 2);
         const blob = new Blob([dataStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -473,16 +497,65 @@ restoreInput.addEventListener('change', (e) => {
     const reader = new FileReader();
     reader.onload = async (event) => {
         try {
-            const importedData = JSON.parse(event.target.result);
+            const imported = JSON.parse(event.target.result);
+            if (!imported || typeof imported !== 'object') throw new Error("Invalid JSON");
+
             if (confirm("This will overwrite your current local data. Are you sure?")) {
-                state.data = importedData;
+                // Determine if legacy (just data object) or new format (with settings)
+                let newData = {};
+                if (imported.data && imported.settings) {
+                    // New Format
+                    newData = imported.data;
+
+                    // Restore Settings
+                    if (imported.settings.cowPrice) {
+                        state.cowPrice = imported.settings.cowPrice;
+                        localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+                        priceCowInput.value = state.cowPrice;
+                    }
+                    if (imported.settings.buffaloPrice) {
+                        state.buffaloPrice = imported.settings.buffaloPrice;
+                        localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
+                        priceBuffaloInput.value = state.buffaloPrice;
+                    }
+
+                    // Restore Theme
+                    if (typeof imported.settings.isDark !== 'undefined') {
+                        state.isDark = imported.settings.isDark;
+                        document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
+                        localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
+                        themeToggle.checked = state.isDark;
+                    }
+
+                    // Restore Reminder
+                    if (typeof imported.settings.reminderEnabled !== 'undefined') {
+                         state.reminderEnabled = imported.settings.reminderEnabled;
+                         localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+                         reminderToggle.checked = state.reminderEnabled;
+                         reminderTimeInput.style.display = state.reminderEnabled ? 'block' : 'none';
+                    }
+                     if (imported.settings.reminderTime) {
+                         state.reminderTime = imported.settings.reminderTime;
+                         localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+                         reminderTimeInput.value = state.reminderTime;
+                    }
+                    // Re-schedule notification if needed
+                    if (state.reminderEnabled) await scheduleNotification();
+                    else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+
+                } else {
+                    // Legacy Format (imported is just the data object)
+                    newData = imported;
+                }
+
+                state.data = newData;
                 await saveDataToDisk();
-                alert("Data restored successfully!");
+                alert("Data and settings restored successfully!");
                 renderSummary();
                 renderFullHistory();
             }
         } catch (err) {
-            alert("Error reading file. Is it a valid JSON?");
+            alert("Error reading file. Is it a valid backup?");
             console.error(err);
         }
     };

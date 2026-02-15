@@ -5,7 +5,8 @@
   "scripts": {
     "start": "npx cap serve",
     "build": "esbuild src/app.js --bundle --outfile=www/js/app.js --format=esm && npx cap sync",
-    "android": "npx cap open android"
+    "android": "npx cap open android",
+    "generate-assets": "npx capacitor-assets generate --android"
   },
   "dependencies": {
     "@capacitor/android": "^5.0.0",
@@ -16,6 +17,7 @@
     "@capacitor/toast": "^5.0.8"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^5.0.0",
     "esbuild": "^0.27.3"
   }

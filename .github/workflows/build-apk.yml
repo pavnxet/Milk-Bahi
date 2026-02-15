@@ -33,6 +33,7 @@ jobs:
       - name: Initialize Android Platform
         run: |
           npx cap add android
+          npx capacitor-assets generate --android
           npx cap sync
 
       - name: Build APK (Debug)
