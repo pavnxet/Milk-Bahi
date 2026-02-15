@@ -42,20 +42,20 @@ jobs:
           ./gradlew assembleDebug
 
       - name: Rename APK
-        run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/MilkBahi_v1.11.apk
+        run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/MilkBahi_v2.01.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MilkBahi_v1.11.apk
-          path: android/app/build/outputs/apk/debug/MilkBahi_v1.11.apk
+          name: MilkBahi_v2.01.apk
+          path: android/app/build/outputs/apk/debug/MilkBahi_v2.01.apk
 
       - name: Create Release
         if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.11.${{ github.run_number }}
-          name: Release v1.11.${{ github.run_number }}
-          files: android/app/build/outputs/apk/debug/MilkBahi_v1.11.apk
+          tag_name: v2.01.${{ github.run_number }}
+          name: Release v2.01.${{ github.run_number }}
+          files: android/app/build/outputs/apk/debug/MilkBahi_v2.01.apk
           draft: false
           prerelease: false
