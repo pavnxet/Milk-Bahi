@@ -1,23 +1,23 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 // --- Constants ---
-const DEFAULT_CODE = "MOM-MILK-2024";
 const STORAGE_KEY = "milk_tracker_data";
-const PRICE_KEY = "milk_tracker_price";
+const PRICE_COW_KEY = "milk_tracker_price_cow";
+const PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
 const THEME_KEY = "milk_tracker_theme";
 const DATA_FOLDER = "MilkTracker";
 const DATA_FILE = "data.json";
 
 // --- State ---
 let state = {
-    data: {}, // { "YYYY-MM-DD": quantity }
-    price: 60,
+    data: {}, // { "YYYY-MM-DD": { cow: float, buffalo: float } }
+    cowPrice: 60,
+    buffaloPrice: 70, // Default buffalo price
     currentDate: (() => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     })(),
-    isDark: false,
-    isAuthenticated: false
+    isDark: false
 };
 
 // --- UI Elements ---
@@ -28,12 +28,19 @@ const loginBtn = document.getElementById('login-btn');
 const loginError = document.getElementById('login-error');
 
 const dateInput = document.getElementById('entry-date');
-const qtyDisplay = document.getElementById('qty-display');
-const decreaseBtn = document.getElementById('decrease-qty');
-const increaseBtn = document.getElementById('increase-qty');
+// Controls
+const decCowBtn = document.getElementById('dec-cow');
+const incCowBtn = document.getElementById('inc-cow');
+const qtyCowDisplay = document.getElementById('qty-cow');
+
+const decBuffBtn = document.getElementById('dec-buff');
+const incBuffBtn = document.getElementById('inc-buff');
+const qtyBuffDisplay = document.getElementById('qty-buff');
+
 const saveBtn = document.getElementById('save-entry-btn');
 
-const totalLitersEl = document.getElementById('total-liters');
+const totalCowEl = document.getElementById('total-cow');
+const totalBuffaloEl = document.getElementById('total-buffalo');
 const totalCostEl = document.getElementById('total-cost');
 const historyListEl = document.getElementById('history-list'); // In Tab History
 const currentMonthDisplay = document.getElementById('current-month-display');
@@ -41,7 +48,8 @@ const currentMonthDisplay = document.getElementById('current-month-display');
 const settingsBtn = document.getElementById('settings-btn');
 const settingsModal = document.getElementById('settings-modal');
 const closeSettingsBtn = document.getElementById('close-settings');
-const priceInput = document.getElementById('price-setting');
+const priceCowInput = document.getElementById('price-cow-setting');
+const priceBuffaloInput = document.getElementById('price-buffalo-setting');
 const themeToggle = document.getElementById('theme-toggle');
 const logoutBtn = document.getElementById('logout-btn');
 const whatsappFab = document.getElementById('whatsapp-fab');
@@ -52,10 +60,13 @@ const restoreBtn = document.getElementById('restore-btn');
 const restoreInput = document.getElementById('restore-input');
 
 // --- Initialization ---
-function init() {
+async function init() {
     // Load local settings
-    const savedPrice = localStorage.getItem(PRICE_KEY);
-    if (savedPrice) state.price = parseFloat(savedPrice);
+    const savedCowPrice = localStorage.getItem(PRICE_COW_KEY);
+    if (savedCowPrice) state.cowPrice = parseFloat(savedCowPrice);
+
+    const savedBuffaloPrice = localStorage.getItem(PRICE_BUFFALO_KEY);
+    if (savedBuffaloPrice) state.buffaloPrice = parseFloat(savedBuffaloPrice);
 
     const savedTheme = localStorage.getItem(THEME_KEY);
     if (savedTheme === 'dark') {
@@ -66,38 +77,19 @@ function init() {
 
     // Set today's date
     dateInput.value = state.currentDate;
-    priceInput.value = state.price;
+    priceCowInput.value = state.cowPrice;
+    priceBuffaloInput.value = state.buffaloPrice;
 
-    // Render current month
-    renderDate(new Date());
+    // Init Dashboard directly
+    showDashboard();
+    await loadData();
 }
 
-// --- Auth Logic ---
-loginBtn.addEventListener('click', async () => {
-    const code = secretCodeInput.value;
-    if (code === DEFAULT_CODE) {
-        // Local unlock
-        state.isAuthenticated = true;
-        showDashboard();
-        await loadData();
-        // Hide keyboard
-        secretCodeInput.blur();
-    } else {
-        loginError.style.display = 'block';
-        loginError.innerText = "Incorrect code!";
-    }
-});
-
-logoutBtn.addEventListener('click', () => {
-    state.isAuthenticated = false;
-    loginScreen.style.display = 'flex';
-    dashboard.classList.add('hidden');
-    secretCodeInput.value = '';
-});
-
 function showDashboard() {
-    loginScreen.style.display = 'none';
+    // Remove login logic
+    if (loginScreen) loginScreen.style.display = 'none';
     dashboard.classList.remove('hidden');
+
     renderSummary();
     renderFullHistory();
 }
@@ -131,6 +123,14 @@ async function loadData() {
             saveDataToDisk();
         }
     }
+
+    // Migration Logic: Convert old number format to object format
+    for (const [date, val] of Object.entries(state.data)) {
+        if (typeof val === 'number') {
+            state.data[date] = { cow: val, buffalo: 0 };
+        }
+    }
+
     renderSummary();
     renderFullHistory();
 }
@@ -166,28 +166,30 @@ async function deleteEntry(date) {
 }
 
 // --- UI Logic ---
-let currentQty = 1.0;
+let currentCow = 0.0;
+let currentBuff = 0.0;
 
-function updateQtyDisplay() {
-    qtyDisplay.innerText = currentQty.toFixed(1);
+function updateDisplay() {
+    qtyCowDisplay.innerText = currentCow.toFixed(1);
+    qtyBuffDisplay.innerText = currentBuff.toFixed(1);
 }
 
-decreaseBtn.addEventListener('click', () => {
-    if (currentQty > 0.5) currentQty -= 0.5;
-    updateQtyDisplay();
-}
-);
+decCowBtn.addEventListener('click', () => { if (currentCow > 0) currentCow -= 0.5; updateDisplay(); });
+incCowBtn.addEventListener('click', () => { currentCow += 0.5; updateDisplay(); });
 
-increaseBtn.addEventListener('click', () => {
-    currentQty += 0.5;
-    updateQtyDisplay();
-});
+decBuffBtn.addEventListener('click', () => { if (currentBuff > 0) currentBuff -= 0.5; updateDisplay(); });
+incBuffBtn.addEventListener('click', () => { currentBuff += 0.5; updateDisplay(); });
+
 
 saveBtn.addEventListener('click', async () => {
     const date = dateInput.value;
     if (!date) return alert("Please select a date");
-    await saveData(date, currentQty);
+    if (currentCow === 0 && currentBuff === 0) return alert("Please add some milk!");
+
+    await saveData(date, { cow: currentCow, buffalo: currentBuff });
     alert("Saved!");
+
+    // Reset for convenience? No, maybe mom wants to see what she entered.
 });
 
 function renderDate(date) {
@@ -206,10 +208,21 @@ function getMonthData() {
 
 function renderSummary() {
     const entries = getMonthData();
-    const totalLit = entries.reduce((sum, [date, qty]) => sum + qty, 0);
-    const totalCost = totalLit * state.price;
 
-    totalLitersEl.innerText = `${totalLit}L`;
+    let totalCow = 0;
+    let totalBuff = 0;
+    let totalCost = 0;
+
+    entries.forEach(([date, val]) => {
+        // val is { cow, buffalo } due to migration
+        totalCow += val.cow || 0;
+        totalBuff += val.buffalo || 0;
+        totalCost += (val.cow || 0) * state.cowPrice;
+        totalCost += (val.buffalo || 0) * state.buffaloPrice;
+    });
+
+    totalCowEl.innerText = `${totalCow}L`;
+    totalBuffaloEl.innerText = `${totalBuff}L`;
     totalCostEl.innerText = `₹${totalCost.toFixed(0)}`;
 }
 
@@ -234,7 +247,16 @@ function renderFullHistory() {
 
         const amountSpan = document.createElement('span');
         amountSpan.className = 'history-amount';
-        amountSpan.textContent = `${qty}L`;
+        const cowQty = qty.cow || 0;
+        const buffQty = qty.buffalo || 0;
+
+        let text = '';
+        if (cowQty > 0) text += `🐄${cowQty}L `;
+        if (buffQty > 0) text += `🐃${buffQty}L`;
+        if (text === '') text = '0L';
+
+        amountSpan.textContent = text;
+        amountSpan.style.fontSize = '12px';
 
         const deleteBtn = document.createElement('button');
         deleteBtn.innerHTML = '🗑️';
@@ -266,9 +288,15 @@ dateInput.addEventListener('change', () => {
 settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
 closeSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
 
-priceInput.addEventListener('change', (e) => {
-    state.price = parseFloat(e.target.value);
-    localStorage.setItem(PRICE_KEY, state.price);
+priceCowInput.addEventListener('change', (e) => {
+    state.cowPrice = parseFloat(e.target.value);
+    localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+    renderSummary();
+});
+
+priceBuffaloInput.addEventListener('change', (e) => {
+    state.buffaloPrice = parseFloat(e.target.value);
+    localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
     renderSummary();
 });
 
@@ -370,6 +398,8 @@ function renderAnalytics() {
 
     const milkContainer = document.getElementById('graph-milk');
     const costContainer = document.getElementById('graph-cost');
+    const avgDailyEl = document.getElementById('ana-avg-daily');
+    const projCostEl = document.getElementById('ana-proj-cost');
 
     milkContainer.innerHTML = '';
     costContainer.innerHTML = '';
@@ -377,33 +407,96 @@ function renderAnalytics() {
     if (sortedEntries.length === 0) {
         milkContainer.innerHTML = '<p style="font-size: 12px; margin: auto; color: var(--secondary-text);">No data for this month</p>';
         costContainer.innerHTML = '<p style="font-size: 12px; margin: auto; color: var(--secondary-text);">No data for this month</p>';
+        avgDailyEl.innerText = '0L';
+        projCostEl.innerText = '₹0';
         return;
     }
 
-    // Determine max values
-    const maxMilk = Math.max(...sortedEntries.map(e => e[1])) || 1;
-    const maxCost = maxMilk * state.price;
-    const GRAPH_HEIGHT = 140; // Approx pixels for bars (container ~200px)
+    // --- Calculations ---
+    let totalMilk = 0;
+    let totalCost = 0;
 
-    sortedEntries.forEach(([date, qty]) => {
+    // Determine max values for scaling
+    // We need max(total daily milk) and max(total daily cost)
+    let maxDailyMilk = 0;
+    let maxDailyCost = 0;
+
+    sortedEntries.forEach(([date, val]) => {
+        const c = val.cow || 0;
+        const b = val.buffalo || 0;
+        const dayTotal = c + b;
+        const dayCost = (c * state.cowPrice) + (b * state.buffaloPrice);
+
+        totalMilk += dayTotal;
+        totalCost += dayCost;
+
+        if (dayTotal > maxDailyMilk) maxDailyMilk = dayTotal;
+        if (dayCost > maxDailyCost) maxDailyCost = dayCost;
+    });
+
+    if (maxDailyMilk === 0) maxDailyMilk = 1; // Prevent div by zero
+    if (maxDailyCost === 0) maxDailyCost = 1;
+
+    // Averages & Projections
+    const daysRecorded = sortedEntries.length;
+    const avgDaily = totalMilk / daysRecorded;
+
+    // Project cost: Avg Daily Cost * Days in Month
+    const dateObj = new Date(dateInput.value);
+    const daysInMonth = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate();
+    const avgDailyCost = totalCost / daysRecorded;
+    const projectedCost = avgDailyCost * daysInMonth;
+
+    avgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
+    projCostEl.innerText = `₹${projectedCost.toFixed(0)}`;
+
+
+    // --- Graph Rendering ---
+    const GRAPH_HEIGHT = 140; // Approx pixels
+
+    sortedEntries.forEach(([date, val]) => {
         const day = new Date(date).getDate();
-        const cost = qty * state.price;
+        const c = val.cow || 0;
+        const b = val.buffalo || 0;
 
-        // --- Milk Graph Item ---
+        const dayCost = (c * state.cowPrice) + (b * state.buffaloPrice);
+
+        // --- Milk Stacked Graph ---
+        // Cow (Bottom) + Buffalo (Top)
+
         const milkWrapper = document.createElement('div');
         milkWrapper.style.display = 'flex';
         milkWrapper.style.flexDirection = 'column';
         milkWrapper.style.alignItems = 'center';
         milkWrapper.style.justifyContent = 'flex-end';
         milkWrapper.style.height = '100%';
-        milkWrapper.style.minWidth = '24px'; // Spacing
+        milkWrapper.style.minWidth = '20px'; // Spacing
 
-        const milkBar = document.createElement('div');
-        const milkH = (qty / maxMilk) * GRAPH_HEIGHT;
-        milkBar.style.height = `${milkH}px`;
-        milkBar.style.width = '12px';
-        milkBar.style.background = 'var(--accent-color)';
-        milkBar.style.borderRadius = '4px 4px 0 0';
+        const barContainer = document.createElement('div');
+        barContainer.style.display = 'flex';
+        barContainer.style.flexDirection = 'column-reverse'; // Stack from bottom
+        barContainer.style.width = '12px';
+        barContainer.style.background = 'rgba(0,0,0,0.05)';
+        barContainer.style.borderRadius = '4px 4px 0 0';
+        barContainer.style.overflow = 'hidden';
+
+        const cowH = (c / maxDailyMilk) * GRAPH_HEIGHT;
+        const buffH = (b / maxDailyMilk) * GRAPH_HEIGHT;
+
+        // Cow Bar
+        const cowBar = document.createElement('div');
+        cowBar.style.height = `${cowH}px`;
+        cowBar.style.width = '100%';
+        cowBar.style.background = 'var(--accent-color)'; // Cow Color
+
+        // Buff Bar
+        const buffBar = document.createElement('div');
+        buffBar.style.height = `${buffH}px`;
+        buffBar.style.width = '100%';
+        buffBar.style.background = '#FF9500'; // Buff Color (Orange)
+
+        barContainer.appendChild(cowBar);
+        barContainer.appendChild(buffBar);
 
         const milkLabel = document.createElement('div');
         milkLabel.innerText = day;
@@ -411,9 +504,10 @@ function renderAnalytics() {
         milkLabel.style.color = 'var(--secondary-text)';
         milkLabel.style.marginTop = '4px';
 
-        milkWrapper.appendChild(milkBar);
+        milkWrapper.appendChild(barContainer);
         milkWrapper.appendChild(milkLabel);
         milkContainer.appendChild(milkWrapper);
+
 
         // --- Cost Graph Item ---
         const costWrapper = document.createElement('div');
@@ -422,10 +516,10 @@ function renderAnalytics() {
         costWrapper.style.alignItems = 'center';
         costWrapper.style.justifyContent = 'flex-end';
         costWrapper.style.height = '100%';
-        costWrapper.style.minWidth = '24px';
+        costWrapper.style.minWidth = '20px';
 
         const costBar = document.createElement('div');
-        const costH = (cost / maxCost) * GRAPH_HEIGHT;
+        const costH = (dayCost / maxDailyCost) * GRAPH_HEIGHT;
         costBar.style.height = `${costH}px`;
         costBar.style.width = '12px';
         costBar.style.background = 'var(--success-color)';

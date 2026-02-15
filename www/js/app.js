@@ -1114,22 +1114,23 @@ var Filesystem = registerPlugin("Filesystem", {
 });
 
 // src/app.js
-var DEFAULT_CODE = "MOM-MILK-2024";
 var STORAGE_KEY = "milk_tracker_data";
-var PRICE_KEY = "milk_tracker_price";
+var PRICE_COW_KEY = "milk_tracker_price_cow";
+var PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
 var THEME_KEY = "milk_tracker_theme";
 var DATA_FOLDER = "MilkTracker";
 var DATA_FILE = "data.json";
 var state = {
   data: {},
-  // { "YYYY-MM-DD": quantity }
-  price: 60,
+  // { "YYYY-MM-DD": { cow: float, buffalo: float } }
+  cowPrice: 60,
+  buffaloPrice: 70,
+  // Default buffalo price
   currentDate: (() => {
     const d = /* @__PURE__ */ new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   })(),
-  isDark: false,
-  isAuthenticated: false
+  isDark: false
 };
 var loginScreen = document.getElementById("login-screen");
 var dashboard = document.getElementById("dashboard");
@@ -1137,27 +1138,34 @@ var secretCodeInput = document.getElementById("secret-code-input");
 var loginBtn = document.getElementById("login-btn");
 var loginError = document.getElementById("login-error");
 var dateInput = document.getElementById("entry-date");
-var qtyDisplay = document.getElementById("qty-display");
-var decreaseBtn = document.getElementById("decrease-qty");
-var increaseBtn = document.getElementById("increase-qty");
+var decCowBtn = document.getElementById("dec-cow");
+var incCowBtn = document.getElementById("inc-cow");
+var qtyCowDisplay = document.getElementById("qty-cow");
+var decBuffBtn = document.getElementById("dec-buff");
+var incBuffBtn = document.getElementById("inc-buff");
+var qtyBuffDisplay = document.getElementById("qty-buff");
 var saveBtn = document.getElementById("save-entry-btn");
-var totalLitersEl = document.getElementById("total-liters");
+var totalCowEl = document.getElementById("total-cow");
+var totalBuffaloEl = document.getElementById("total-buffalo");
 var totalCostEl = document.getElementById("total-cost");
 var historyListEl = document.getElementById("history-list");
 var currentMonthDisplay = document.getElementById("current-month-display");
 var settingsBtn = document.getElementById("settings-btn");
 var settingsModal = document.getElementById("settings-modal");
 var closeSettingsBtn = document.getElementById("close-settings");
-var priceInput = document.getElementById("price-setting");
+var priceCowInput = document.getElementById("price-cow-setting");
+var priceBuffaloInput = document.getElementById("price-buffalo-setting");
 var themeToggle = document.getElementById("theme-toggle");
 var logoutBtn = document.getElementById("logout-btn");
 var whatsappFab = document.getElementById("whatsapp-fab");
 var backupBtn = document.getElementById("backup-btn");
 var restoreBtn = document.getElementById("restore-btn");
 var restoreInput = document.getElementById("restore-input");
-function init() {
-  const savedPrice = localStorage.getItem(PRICE_KEY);
-  if (savedPrice) state.price = parseFloat(savedPrice);
+async function init() {
+  const savedCowPrice = localStorage.getItem(PRICE_COW_KEY);
+  if (savedCowPrice) state.cowPrice = parseFloat(savedCowPrice);
+  const savedBuffaloPrice = localStorage.getItem(PRICE_BUFFALO_KEY);
+  if (savedBuffaloPrice) state.buffaloPrice = parseFloat(savedBuffaloPrice);
   const savedTheme = localStorage.getItem(THEME_KEY);
   if (savedTheme === "dark") {
     state.isDark = true;
@@ -1165,29 +1173,13 @@ function init() {
     themeToggle.checked = true;
   }
   dateInput.value = state.currentDate;
-  priceInput.value = state.price;
-  renderDate(/* @__PURE__ */ new Date());
+  priceCowInput.value = state.cowPrice;
+  priceBuffaloInput.value = state.buffaloPrice;
+  showDashboard();
+  await loadData();
 }
-loginBtn.addEventListener("click", async () => {
-  const code = secretCodeInput.value;
-  if (code === DEFAULT_CODE) {
-    state.isAuthenticated = true;
-    showDashboard();
-    await loadData();
-    secretCodeInput.blur();
-  } else {
-    loginError.style.display = "block";
-    loginError.innerText = "Incorrect code!";
-  }
-});
-logoutBtn.addEventListener("click", () => {
-  state.isAuthenticated = false;
-  loginScreen.style.display = "flex";
-  dashboard.classList.add("hidden");
-  secretCodeInput.value = "";
-});
 function showDashboard() {
-  loginScreen.style.display = "none";
+  if (loginScreen) loginScreen.style.display = "none";
   dashboard.classList.remove("hidden");
   renderSummary();
   renderFullHistory();
@@ -1214,6 +1206,11 @@ async function loadData() {
     if (localData) {
       state.data = JSON.parse(localData);
       saveDataToDisk();
+    }
+  }
+  for (const [date, val] of Object.entries(state.data)) {
+    if (typeof val === "number") {
+      state.data[date] = { cow: val, buffalo: 0 };
     }
   }
   renderSummary();
@@ -1246,25 +1243,33 @@ async function deleteEntry(date) {
     renderFullHistory();
   }
 }
-var currentQty = 1;
-function updateQtyDisplay() {
-  qtyDisplay.innerText = currentQty.toFixed(1);
+var currentCow = 0;
+var currentBuff = 0;
+function updateDisplay() {
+  qtyCowDisplay.innerText = currentCow.toFixed(1);
+  qtyBuffDisplay.innerText = currentBuff.toFixed(1);
 }
-decreaseBtn.addEventListener(
-  "click",
-  () => {
-    if (currentQty > 0.5) currentQty -= 0.5;
-    updateQtyDisplay();
-  }
-);
-increaseBtn.addEventListener("click", () => {
-  currentQty += 0.5;
-  updateQtyDisplay();
+decCowBtn.addEventListener("click", () => {
+  if (currentCow > 0) currentCow -= 0.5;
+  updateDisplay();
+});
+incCowBtn.addEventListener("click", () => {
+  currentCow += 0.5;
+  updateDisplay();
+});
+decBuffBtn.addEventListener("click", () => {
+  if (currentBuff > 0) currentBuff -= 0.5;
+  updateDisplay();
+});
+incBuffBtn.addEventListener("click", () => {
+  currentBuff += 0.5;
+  updateDisplay();
 });
 saveBtn.addEventListener("click", async () => {
   const date = dateInput.value;
   if (!date) return alert("Please select a date");
-  await saveData(date, currentQty);
+  if (currentCow === 0 && currentBuff === 0) return alert("Please add some milk!");
+  await saveData(date, { cow: currentCow, buffalo: currentBuff });
   alert("Saved!");
 });
 function renderDate(date) {
@@ -1280,9 +1285,17 @@ function getMonthData() {
 }
 function renderSummary() {
   const entries = getMonthData();
-  const totalLit = entries.reduce((sum, [date, qty]) => sum + qty, 0);
-  const totalCost = totalLit * state.price;
-  totalLitersEl.innerText = `${totalLit}L`;
+  let totalCow = 0;
+  let totalBuff = 0;
+  let totalCost = 0;
+  entries.forEach(([date, val]) => {
+    totalCow += val.cow || 0;
+    totalBuff += val.buffalo || 0;
+    totalCost += (val.cow || 0) * state.cowPrice;
+    totalCost += (val.buffalo || 0) * state.buffaloPrice;
+  });
+  totalCowEl.innerText = `${totalCow}L`;
+  totalBuffaloEl.innerText = `${totalBuff}L`;
   totalCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
 }
 function renderFullHistory() {
@@ -1301,7 +1314,14 @@ function renderFullHistory() {
     rightDiv.style.gap = "10px";
     const amountSpan = document.createElement("span");
     amountSpan.className = "history-amount";
-    amountSpan.textContent = `${qty}L`;
+    const cowQty = qty.cow || 0;
+    const buffQty = qty.buffalo || 0;
+    let text = "";
+    if (cowQty > 0) text += `\u{1F404}${cowQty}L `;
+    if (buffQty > 0) text += `\u{1F403}${buffQty}L`;
+    if (text === "") text = "0L";
+    amountSpan.textContent = text;
+    amountSpan.style.fontSize = "12px";
     const deleteBtn = document.createElement("button");
     deleteBtn.innerHTML = "\u{1F5D1}\uFE0F";
     deleteBtn.className = "icon-btn";
@@ -1324,9 +1344,14 @@ dateInput.addEventListener("change", () => {
 });
 settingsBtn.addEventListener("click", () => settingsModal.classList.add("active"));
 closeSettingsBtn.addEventListener("click", () => settingsModal.classList.remove("active"));
-priceInput.addEventListener("change", (e) => {
-  state.price = parseFloat(e.target.value);
-  localStorage.setItem(PRICE_KEY, state.price);
+priceCowInput.addEventListener("change", (e) => {
+  state.cowPrice = parseFloat(e.target.value);
+  localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+  renderSummary();
+});
+priceBuffaloInput.addEventListener("change", (e) => {
+  state.buffaloPrice = parseFloat(e.target.value);
+  localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
   renderSummary();
 });
 themeToggle.addEventListener("change", (e) => {
@@ -1401,38 +1426,79 @@ function renderAnalytics() {
   const sortedEntries = [...entries].sort((a, b) => a[0].localeCompare(b[0]));
   const milkContainer = document.getElementById("graph-milk");
   const costContainer = document.getElementById("graph-cost");
+  const avgDailyEl = document.getElementById("ana-avg-daily");
+  const projCostEl = document.getElementById("ana-proj-cost");
   milkContainer.innerHTML = "";
   costContainer.innerHTML = "";
   if (sortedEntries.length === 0) {
     milkContainer.innerHTML = '<p style="font-size: 12px; margin: auto; color: var(--secondary-text);">No data for this month</p>';
     costContainer.innerHTML = '<p style="font-size: 12px; margin: auto; color: var(--secondary-text);">No data for this month</p>';
+    avgDailyEl.innerText = "0L";
+    projCostEl.innerText = "\u20B90";
     return;
   }
-  const maxMilk = Math.max(...sortedEntries.map((e) => e[1])) || 1;
-  const maxCost = maxMilk * state.price;
+  let totalMilk = 0;
+  let totalCost = 0;
+  let maxDailyMilk = 0;
+  let maxDailyCost = 0;
+  sortedEntries.forEach(([date, val]) => {
+    const c = val.cow || 0;
+    const b = val.buffalo || 0;
+    const dayTotal = c + b;
+    const dayCost = c * state.cowPrice + b * state.buffaloPrice;
+    totalMilk += dayTotal;
+    totalCost += dayCost;
+    if (dayTotal > maxDailyMilk) maxDailyMilk = dayTotal;
+    if (dayCost > maxDailyCost) maxDailyCost = dayCost;
+  });
+  if (maxDailyMilk === 0) maxDailyMilk = 1;
+  if (maxDailyCost === 0) maxDailyCost = 1;
+  const daysRecorded = sortedEntries.length;
+  const avgDaily = totalMilk / daysRecorded;
+  const dateObj = new Date(dateInput.value);
+  const daysInMonth = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate();
+  const avgDailyCost = totalCost / daysRecorded;
+  const projectedCost = avgDailyCost * daysInMonth;
+  avgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
+  projCostEl.innerText = `\u20B9${projectedCost.toFixed(0)}`;
   const GRAPH_HEIGHT = 140;
-  sortedEntries.forEach(([date, qty]) => {
+  sortedEntries.forEach(([date, val]) => {
     const day = new Date(date).getDate();
-    const cost = qty * state.price;
+    const c = val.cow || 0;
+    const b = val.buffalo || 0;
+    const dayCost = c * state.cowPrice + b * state.buffaloPrice;
     const milkWrapper = document.createElement("div");
     milkWrapper.style.display = "flex";
     milkWrapper.style.flexDirection = "column";
     milkWrapper.style.alignItems = "center";
     milkWrapper.style.justifyContent = "flex-end";
     milkWrapper.style.height = "100%";
-    milkWrapper.style.minWidth = "24px";
-    const milkBar = document.createElement("div");
-    const milkH = qty / maxMilk * GRAPH_HEIGHT;
-    milkBar.style.height = `${milkH}px`;
-    milkBar.style.width = "12px";
-    milkBar.style.background = "var(--accent-color)";
-    milkBar.style.borderRadius = "4px 4px 0 0";
+    milkWrapper.style.minWidth = "20px";
+    const barContainer = document.createElement("div");
+    barContainer.style.display = "flex";
+    barContainer.style.flexDirection = "column-reverse";
+    barContainer.style.width = "12px";
+    barContainer.style.background = "rgba(0,0,0,0.05)";
+    barContainer.style.borderRadius = "4px 4px 0 0";
+    barContainer.style.overflow = "hidden";
+    const cowH = c / maxDailyMilk * GRAPH_HEIGHT;
+    const buffH = b / maxDailyMilk * GRAPH_HEIGHT;
+    const cowBar = document.createElement("div");
+    cowBar.style.height = `${cowH}px`;
+    cowBar.style.width = "100%";
+    cowBar.style.background = "var(--accent-color)";
+    const buffBar = document.createElement("div");
+    buffBar.style.height = `${buffH}px`;
+    buffBar.style.width = "100%";
+    buffBar.style.background = "#FF9500";
+    barContainer.appendChild(cowBar);
+    barContainer.appendChild(buffBar);
     const milkLabel = document.createElement("div");
     milkLabel.innerText = day;
     milkLabel.style.fontSize = "9px";
     milkLabel.style.color = "var(--secondary-text)";
     milkLabel.style.marginTop = "4px";
-    milkWrapper.appendChild(milkBar);
+    milkWrapper.appendChild(barContainer);
     milkWrapper.appendChild(milkLabel);
     milkContainer.appendChild(milkWrapper);
     const costWrapper = document.createElement("div");
@@ -1441,9 +1507,9 @@ function renderAnalytics() {
     costWrapper.style.alignItems = "center";
     costWrapper.style.justifyContent = "flex-end";
     costWrapper.style.height = "100%";
-    costWrapper.style.minWidth = "24px";
+    costWrapper.style.minWidth = "20px";
     const costBar = document.createElement("div");
-    const costH = cost / maxCost * GRAPH_HEIGHT;
+    const costH = dayCost / maxDailyCost * GRAPH_HEIGHT;
     costBar.style.height = `${costH}px`;
     costBar.style.width = "12px";
     costBar.style.background = "var(--success-color)";

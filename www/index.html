@@ -13,22 +13,6 @@
 <body>
 
     <div id="app">
-        <!-- Login Screen -->
-        <div id="login-screen">
-            <div class="glass-card" style="width: 100%;">
-                <h1>Welcome, Mom! 🥛</h1>
-                <p>Please enter your secret code.</p>
-                <div style="margin-top: 20px;">
-                    <input type="password" id="secret-code-input" placeholder="Secret Code">
-                    <button id="login-btn">Unlock</button>
-                    <p id="login-error" style="color: var(--danger-color); margin-top: 10px; display: none;">Incorrect code!</p>
-                </div>
-                <div style="margin-top: 20px; font-size: 12px; color: var(--secondary-text);">
-                    Default Code: <strong>MOM-MILK-2024</strong>
-                </div>
-            </div>
-        </div>
-
         <!-- Main Dashboard -->
         <div id="dashboard" class="hidden">
             <!-- Tab: Home -->
@@ -43,14 +27,18 @@
 
                 <!-- Summary Card -->
                 <div class="glass-card">
-                    <div class="stats-grid">
+                    <div class="stats-grid" style="grid-template-columns: 1fr 1fr 1fr;">
                         <div class="stat-item">
-                            <div class="stat-value" id="total-liters">0L</div>
-                            <div class="stat-label">Total Milk</div>
+                            <div class="stat-value" id="total-cow" style="font-size: 18px;">0L</div>
+                            <div class="stat-label">Cow</div>
+                        </div>
+                         <div class="stat-item">
+                            <div class="stat-value" id="total-buffalo" style="font-size: 18px;">0L</div>
+                            <div class="stat-label">Buff</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value" id="total-cost">₹0</div>
-                            <div class="stat-label">Total Cost</div>
+                            <div class="stat-value" id="total-cost" style="font-size: 18px;">₹0</div>
+                            <div class="stat-label">Cost</div>
                         </div>
                     </div>
                 </div>
@@ -58,15 +46,35 @@
                 <!-- Add Entry Card -->
                 <div class="glass-card">
                     <h2>Add Today's Milk</h2>
-                    <input type="date" id="entry-date">
-                    <div class="entry-controls">
+                    <input type="date" id="entry-date" style="margin-bottom: 5px;">
+
+                    <!-- Cow Control -->
+                    <div class="entry-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 15px;">
+                        <span style="font-weight: 500;">🐄 Cow</span>
                         <div class="quantity-control">
-                            <button class="circle-btn secondary" id="decrease-qty">-</button>
-                            <span id="qty-display" style="font-size: 20px; font-weight: 600; min-width: 40px; text-align: center;">1.0</span>
-                            <button class="circle-btn secondary" id="increase-qty">+</button>
+                            <button class="circle-btn secondary" id="dec-cow">-</button>
+                            <span id="qty-cow" style="font-size: 18px; font-weight: 600; min-width: 30px; text-align: center;">0.0</span>
+                            <button class="circle-btn secondary" id="inc-cow">+</button>
                         </div>
-                        <button id="save-entry-btn" style="width: auto;">Save</button>
                     </div>
+
+                    <!-- Buffalo Control -->
+                    <div class="entry-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 15px;">
+                         <span style="font-weight: 500;">🐃 Buffalo</span>
+                        <div class="quantity-control">
+                            <button class="circle-btn secondary" id="dec-buff">-</button>
+                            <span id="qty-buff" style="font-size: 18px; font-weight: 600; min-width: 30px; text-align: center;">0.0</span>
+                            <button class="circle-btn secondary" id="inc-buff">+</button>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 20px;">
+                        <button id="save-entry-btn">Save Entry</button>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin-top: 30px; margin-bottom: 20px;">
+                    <p style="font-size: 10px; color: var(--secondary-text); font-weight: 500; letter-spacing: 1px;">MADE WITH ❤️ BY PAVNEET</p>
                 </div>
 
                 <!-- WhatsApp FAB -->
@@ -78,13 +86,33 @@
             <!-- Tab: Analytics -->
             <div id="tab-analytics" class="tab-content">
                 <header><h2>Analytics</h2></header>
+
                 <div class="glass-card">
-                     <h3>Daily Milk (L)</h3>
-                     <div id="graph-milk" style="height: 200px; width: 100%; display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; padding-top: 10px;"></div>
+                    <h3>Monthly Summary</h3>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <div class="stat-value" id="ana-avg-daily" style="font-size: 16px;">0L</div>
+                            <div class="stat-label">Avg Daily</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" id="ana-proj-cost" style="font-size: 16px;">₹0</div>
+                            <div class="stat-label">Proj. Cost</div>
+                        </div>
+                    </div>
                 </div>
+
+                <div class="glass-card">
+                     <h3>Daily Milk Trend (L)</h3>
+                     <div style="font-size: 10px; color: var(--secondary-text); margin-bottom: 5px;">
+                         <span style="color: var(--accent-color);">■ Cow</span>
+                         <span style="color: #FF9500;">■ Buffalo</span>
+                     </div>
+                     <div id="graph-milk" style="height: 180px; width: 100%; display: flex; align-items: flex-end; gap: 6px; overflow-x: auto; padding-top: 10px; padding-bottom: 5px;"></div>
+                </div>
+
                 <div class="glass-card">
                      <h3>Daily Expense (₹)</h3>
-                     <div id="graph-cost" style="height: 200px; width: 100%; display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; padding-top: 10px;"></div>
+                     <div id="graph-cost" style="height: 180px; width: 100%; display: flex; align-items: flex-end; gap: 6px; overflow-x: auto; padding-top: 10px; padding-bottom: 5px;"></div>
                 </div>
             </div>
 
@@ -125,8 +153,12 @@
             </div>
 
             <div style="margin-bottom: 20px;">
-                <label>Price per Liter (₹)</label>
-                <input type="number" id="price-setting" value="60">
+                <label>Cow Price (₹)</label>
+                <input type="number" id="price-cow-setting" value="60">
+            </div>
+             <div style="margin-bottom: 20px;">
+                <label>Buffalo Price (₹)</label>
+                <input type="number" id="price-buffalo-setting" value="70">
             </div>
 
             <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
