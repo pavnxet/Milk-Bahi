@@ -2,8 +2,5 @@
   "appId": "com.milktracker.app",
   "appName": "Milk Tracker",
   "webDir": "www",
-  "bundledWebRuntime": false,
-  "server": {
-    "cleartext": true
-  }
+  "bundledWebRuntime": false
 }
