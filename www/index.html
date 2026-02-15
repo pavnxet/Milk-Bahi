@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Milk Tracker</title>
+    <title>Milk Bahi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -13,12 +13,33 @@
 <body>
 
     <div id="app">
+        <div id="sidebar-overlay" class="sidebar-overlay"></div>
+        <div id="sidebar" class="sidebar">
+            <div style="text-align: center; margin-bottom: 30px;">
+                <div style="width: 80px; height: 80px; background: var(--accent-color); border-radius: 50%; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; color: white; font-size: 32px; font-weight: bold;">P</div>
+                <h3>Pavneet</h3>
+                <p style="font-size: 12px; color: var(--secondary-text);">stays-strike-heave@duck.com</p>
+            </div>
+
+            <div style="flex: 1;">
+                 <p style="font-size: 14px; margin-bottom: 20px;">
+                    This is my 1st android app. I hope this helps you track milk expenses easily!
+                </p>
+            </div>
+
+            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates</button>
+            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v1.0</p>
+        </div>
+
         <!-- Main Dashboard -->
         <div id="dashboard" class="hidden">
             <!-- Tab: Home -->
             <div id="tab-home" class="tab-content active">
                 <header>
-                    <div>
+                    <button class="icon-btn" id="menu-btn" style="margin-right: 10px;">
+                        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+                    </button>
+                    <div style="flex: 1;">
                         <h2 id="current-month-display">February 2024</h2>
                         <p>Track your daily milk</p>
                     </div>
@@ -45,7 +66,10 @@
 
                 <!-- Add Entry Card -->
                 <div class="glass-card">
-                    <h2>Add Today's Milk</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h2>Add Today's Milk</h2>
+                        <button id="copy-yesterday-btn" style="display: none; font-size: 10px; padding: 5px 10px; width: auto; background: var(--secondary-text);">Copy Yesterday</button>
+                    </div>
                     <input type="date" id="entry-date" style="margin-bottom: 5px;">
 
                     <!-- Cow Control -->
