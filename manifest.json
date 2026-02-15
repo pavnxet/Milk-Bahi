@@ -1,0 +1,16 @@
+{
+  "name": "Milk Tracker",
+  "short_name": "MilkTrack",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#f0f2f5",
+  "theme_color": "#007aff",
+  "description": "Daily milk tracking app for Mom.",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192 512x512"
+    }
+  ]
+}
