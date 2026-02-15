@@ -370,6 +370,16 @@ async function scheduleNotification() {
     if (!state.reminderEnabled) return;
 
     try {
+        // Create High Priority Channel (Android)
+        await LocalNotifications.createChannel({
+            id: 'daily_reminder',
+            name: 'Daily Reminder',
+            description: 'Reminds you to enter milk data',
+            importance: 5, // High
+            visibility: 1, // Public
+            vibration: true
+        });
+
         const result = await LocalNotifications.requestPermissions();
         if (result.display !== 'granted') {
             alert("Notification permission required for reminders.");
@@ -387,12 +397,14 @@ async function scheduleNotification() {
                 title: "Milk Bahi",
                 body: "Don't forget to add today's milk entry! 🥛",
                 id: 1,
+                channelId: 'daily_reminder',
                 schedule: {
                     on: {
                         hour: hours,
                         minute: minutes
                     },
-                    allowWhileIdle: true
+                    allowWhileIdle: true,
+                    repeats: true
                 }
             }]
         });
@@ -505,22 +517,38 @@ restoreInput.addEventListener('change', (e) => {
                 let newData = {};
                 if (imported.data && imported.settings) {
                     // New Format
-                    newData = imported.data;
+                    // Security: Validate and Sanitize 'data'
+                    if (typeof imported.data !== 'object') throw new Error("Invalid Data format");
 
-                    // Restore Settings
-                    if (imported.settings.cowPrice) {
+                    const sanitizedData = {};
+                    for (const [key, val] of Object.entries(imported.data)) {
+                        // Key should be YYYY-MM-DD
+                        if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+
+                        // Val should be { cow: num, buffalo: num }
+                        if (typeof val !== 'object') continue;
+
+                        sanitizedData[key] = {
+                            cow: typeof val.cow === 'number' ? val.cow : 0,
+                            buffalo: typeof val.buffalo === 'number' ? val.buffalo : 0
+                        };
+                    }
+                    newData = sanitizedData;
+
+                    // Restore Settings with Validation
+                    if (typeof imported.settings.cowPrice === 'number') {
                         state.cowPrice = imported.settings.cowPrice;
                         localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
                         priceCowInput.value = state.cowPrice;
                     }
-                    if (imported.settings.buffaloPrice) {
+                    if (typeof imported.settings.buffaloPrice === 'number') {
                         state.buffaloPrice = imported.settings.buffaloPrice;
                         localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
                         priceBuffaloInput.value = state.buffaloPrice;
                     }
 
                     // Restore Theme
-                    if (typeof imported.settings.isDark !== 'undefined') {
+                    if (typeof imported.settings.isDark === 'boolean') {
                         state.isDark = imported.settings.isDark;
                         document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
                         localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
@@ -528,13 +556,13 @@ restoreInput.addEventListener('change', (e) => {
                     }
 
                     // Restore Reminder
-                    if (typeof imported.settings.reminderEnabled !== 'undefined') {
+                    if (typeof imported.settings.reminderEnabled === 'boolean') {
                          state.reminderEnabled = imported.settings.reminderEnabled;
                          localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
                          reminderToggle.checked = state.reminderEnabled;
                          reminderTimeInput.style.display = state.reminderEnabled ? 'block' : 'none';
                     }
-                     if (imported.settings.reminderTime) {
+                     if (typeof imported.settings.reminderTime === 'string') {
                          state.reminderTime = imported.settings.reminderTime;
                          localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
                          reminderTimeInput.value = state.reminderTime;
@@ -545,7 +573,21 @@ restoreInput.addEventListener('change', (e) => {
 
                 } else {
                     // Legacy Format (imported is just the data object)
-                    newData = imported;
+                    // Sanitize legacy
+                    const sanitizedData = {};
+                    for (const [key, val] of Object.entries(imported)) {
+                         if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+                         // Legacy might be number or object
+                         if (typeof val === 'number') {
+                             sanitizedData[key] = { cow: val, buffalo: 0 };
+                         } else if (typeof val === 'object') {
+                             sanitizedData[key] = {
+                                 cow: typeof val.cow === 'number' ? val.cow : 0,
+                                 buffalo: typeof val.buffalo === 'number' ? val.buffalo : 0
+                             };
+                         }
+                    }
+                    newData = sanitizedData;
                 }
 
                 state.data = newData;
