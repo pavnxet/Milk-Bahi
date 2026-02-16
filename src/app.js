@@ -880,6 +880,8 @@ const menuBtn = document.getElementById('menu-btn');
 const sidebar = document.getElementById('sidebar');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
 const checkUpdateBtn = document.getElementById('check-update-btn');
+const shareAppBtn = document.getElementById('share-app-btn');
+
 const closeSidebar = () => {
     sidebar.classList.remove('active');
     sidebarOverlay.classList.remove('active');
@@ -899,5 +901,45 @@ if (sidebarOverlay) {
 if (checkUpdateBtn) {
     checkUpdateBtn.addEventListener('click', () => {
         window.open('https://github.com/pavnxet/Milk-Bahi/releases', '_blank');
+    });
+}
+
+if (shareAppBtn) {
+    shareAppBtn.addEventListener('click', async () => {
+        const title = 'Milk Bahi App';
+        const text = '🥛 Milk Bahi - Track your daily milk expenses with ease! 📊✨ Download the latest version here:';
+        const url = 'https://github.com/pavnxet/Milk-Bahi/releases';
+
+        try {
+            // Try Capacitor Share first
+            await Share.share({
+                title: title,
+                text: text,
+                url: url,
+                dialogTitle: 'Share App'
+            });
+        } catch (error) {
+            console.warn("Capacitor Share failed, trying Navigator Share", error);
+            // Fallback to Web Share API
+            if (navigator.share) {
+                try {
+                    await navigator.share({
+                        title: title,
+                        text: text,
+                        url: url
+                    });
+                } catch (err) {
+                    console.error("Navigator Share failed", err);
+                }
+            } else {
+                 // Final Fallback: Copy to Clipboard
+                 try {
+                     await navigator.clipboard.writeText(`${text} ${url}`);
+                     alert("Link copied to clipboard!");
+                 } catch (err) {
+                     alert(`Share this link: ${url}`);
+                 }
+            }
+        }
     });
 }
