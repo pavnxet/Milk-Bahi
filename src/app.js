@@ -906,15 +906,40 @@ if (checkUpdateBtn) {
 
 if (shareAppBtn) {
     shareAppBtn.addEventListener('click', async () => {
+        const title = 'Milk Bahi App';
+        const text = '🥛 Milk Bahi - Track your daily milk expenses with ease! 📊✨ Download the latest version here:';
+        const url = 'https://github.com/pavnxet/Milk-Bahi/releases';
+
         try {
+            // Try Capacitor Share first
             await Share.share({
-                title: 'Milk Bahi App',
-                text: "Check out Milk Bahi! I use it to track my daily milk expenses. It's simple and effective. Download the latest version here:",
-                url: 'https://github.com/pavnxet/Milk-Bahi/releases/latest/download/MilkBahi_v2.01.apk',
+                title: title,
+                text: text,
+                url: url,
                 dialogTitle: 'Share App'
             });
         } catch (error) {
-            console.error("Error sharing:", error);
+            console.warn("Capacitor Share failed, trying Navigator Share", error);
+            // Fallback to Web Share API
+            if (navigator.share) {
+                try {
+                    await navigator.share({
+                        title: title,
+                        text: text,
+                        url: url
+                    });
+                } catch (err) {
+                    console.error("Navigator Share failed", err);
+                }
+            } else {
+                 // Final Fallback: Copy to Clipboard
+                 try {
+                     await navigator.clipboard.writeText(`${text} ${url}`);
+                     alert("Link copied to clipboard!");
+                 } catch (err) {
+                     alert(`Share this link: ${url}`);
+                 }
+            }
         }
     });
 }
