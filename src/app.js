@@ -17,6 +17,31 @@ const REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 const DATA_FOLDER = "MilkTracker";
 const DATA_FILE = "data.json";
 
+// --- Helper Functions ---
+function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
+    const cow = val.cow || 0;
+    const buffalo = val.buffalo || 0;
+    const cowPrice = val.cowPrice !== undefined ? val.cowPrice : defaultCowPrice;
+    const buffaloPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : defaultBuffaloPrice;
+    const cost = (cow * cowPrice) + (buffalo * buffaloPrice);
+    return { cow, buffalo, cowPrice, buffaloPrice, cost };
+}
+
+function calculateTotals(entries, defaultCowPrice, defaultBuffaloPrice) {
+    let totalCow = 0;
+    let totalBuff = 0;
+    let totalCost = 0;
+
+    entries.forEach(([date, val]) => {
+        const result = calculateEntry(val, defaultCowPrice, defaultBuffaloPrice);
+        totalCow += result.cow;
+        totalBuff += result.buffalo;
+        totalCost += result.cost;
+    });
+
+    return { totalCow, totalBuff, totalCost };
+}
+
 // --- State ---
 let state = {
     data: {}, // { "YYYY-MM-DD": { cow: float, buffalo: float, cowPrice: float, buffaloPrice: float } }
@@ -42,11 +67,7 @@ let state = {
 };
 
 // --- UI Elements ---
-const loginScreen = document.getElementById('login-screen');
 const dashboard = document.getElementById('dashboard');
-const secretCodeInput = document.getElementById('secret-code-input');
-const loginBtn = document.getElementById('login-btn');
-const loginError = document.getElementById('login-error');
 
 const dateInput = document.getElementById('entry-date');
 // Controls
@@ -153,7 +174,6 @@ async function init() {
 
 function showDashboard() {
     // Remove login logic
-    if (loginScreen) loginScreen.style.display = 'none';
     dashboard.classList.remove('hidden');
 
     renderSummary();
@@ -292,21 +312,7 @@ function getMonthData() {
 function renderSummary() {
     const entries = getMonthData();
 
-    let totalCow = 0;
-    let totalBuff = 0;
-    let totalCost = 0;
-
-    entries.forEach(([date, val]) => {
-        totalCow += val.cow || 0;
-        totalBuff += val.buffalo || 0;
-
-        // Use stored price if available, else current global price
-        const cPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-        const bPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-
-        totalCost += (val.cow || 0) * cPrice;
-        totalCost += (val.buffalo || 0) * bPrice;
-    });
+    const { totalCow, totalBuff, totalCost } = calculateTotals(entries, state.cowPrice, state.buffaloPrice);
 
     totalCowEl.innerText = `${totalCow}L`;
     totalBuffaloEl.innerText = `${totalBuff}L`;
@@ -515,7 +521,6 @@ async function scheduleNotification() {
                 }
             }]
         });
-        // alert(`Reminder set for ${state.reminderTime}`);
     } catch (e) {
         console.error("Error scheduling notification", e);
     }
@@ -735,20 +740,7 @@ restoreInput.addEventListener('change', (e) => {
 whatsappFab.addEventListener('click', () => {
     const entries = getMonthData();
 
-    let totalCow = 0;
-    let totalBuff = 0;
-    let totalCost = 0;
-
-    entries.forEach(([date, val]) => {
-        totalCow += val.cow || 0;
-        totalBuff += val.buffalo || 0;
-
-        const cPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-        const bPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-
-        totalCost += (val.cow || 0) * cPrice;
-        totalCost += (val.buffalo || 0) * bPrice;
-    });
+    const { totalCow, totalBuff, totalCost } = calculateTotals(entries, state.cowPrice, state.buffaloPrice);
 
     const [year, month] = dateInput.value.split('-');
     const monthName = new Date(dateInput.value).toLocaleString('default', { month: 'long' });
@@ -804,15 +796,22 @@ exportPdfBtn.addEventListener('click', exportToPDF);
 exportCsvBtn.addEventListener('click', exportToCSV);
 
 
-function getFilteredDataForAnalytics() {
-    const start = new Date(state.analyticsStart);
-    const end = new Date(state.analyticsEnd);
+function filterDataByDateRange(data, startStr, endStr) {
+    const start = new Date(startStr);
+    const end = new Date(endStr);
 
     // Sort chronological
-    const entries = Object.entries(state.data).filter(([dateStr, val]) => {
+    return Object.entries(data).filter(([dateStr, val]) => {
         const d = new Date(dateStr);
         return d >= start && d <= end;
     }).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function getFilteredDataForAnalytics() {
+    const entries = filterDataByDateRange(state.data, state.analyticsStart, state.analyticsEnd);
+
+    const start = new Date(state.analyticsStart);
+    const end = new Date(state.analyticsEnd);
 
     // Friendly Label
     const label = `${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
@@ -845,23 +844,20 @@ function renderAnalytics() {
         const existing = state.data[dateKey];
 
         if (existing) {
-            const c = existing.cow || 0;
-            const b = existing.buffalo || 0;
-            const cP = existing.cowPrice !== undefined ? existing.cowPrice : state.cowPrice;
-            const bP = existing.buffaloPrice !== undefined ? existing.buffaloPrice : state.buffaloPrice;
+            const result = calculateEntry(existing, state.cowPrice, state.buffaloPrice);
 
-            totalCow += c;
-            totalBuff += b;
-            totalCost += (c * cP) + (b * bP);
+            totalCow += result.cow;
+            totalBuff += result.buffalo;
+            totalCost += result.cost;
 
             processedData.push({
                 label: `${d.getDate()}/${d.getMonth()+1}`,
                 date: dateKey,
-                cow: c,
-                buffalo: b,
-                cost: (c * cP) + (b * bP),
-                cowPrice: cP,
-                buffaloPrice: bP
+                cow: result.cow,
+                buffalo: result.buffalo,
+                cost: result.cost,
+                cowPrice: result.cowPrice,
+                buffaloPrice: result.buffaloPrice
             });
         } else {
             // Zero Day
@@ -887,15 +883,10 @@ function renderAnalytics() {
     anaProjCostEl.style.color = 'var(--text-color)'; // Reset color
 
     // Peak Days
-    let maxMilk = -1; let maxDate = '';
+    const peak = calculatePeakDay(entries);
 
-    entries.forEach(([date, val]) => {
-         const t = (val.cow||0) + (val.buffalo||0);
-         if (t > maxMilk) { maxMilk = t; maxDate = date; }
-    });
-
-    if (entries.length > 0) {
-        peakDaysEl.innerText = `Max: ${maxMilk}L (${new Date(maxDate).getDate()}/${new Date(maxDate).getMonth()+1})`;
+    if (peak) {
+        peakDaysEl.innerText = `Max: ${peak.maxMilk}L (${new Date(peak.maxDate).getDate()}/${new Date(peak.maxDate).getMonth()+1})`;
     } else {
         peakDaysEl.innerText = "No Data";
     }
@@ -1003,6 +994,15 @@ function renderAnalytics() {
     });
 }
 
+// --- Service Worker Registration ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('SW Registered!', reg.scope))
+            .catch(err => console.log('SW Failed!', err));
+    });
+}
+
 // --- Export Functions ---
 function exportToCSV() {
     const { entries, label } = getFilteredDataForAnalytics();
@@ -1053,20 +1053,16 @@ async function exportToPDF() {
             y = 20;
         }
 
-         const c = val.cow || 0;
-         const b = val.buffalo || 0;
-         const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-         const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-         const cost = (c * cP) + (b * bP);
+         const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
 
-         totalCow += c;
-         totalBuff += b;
-         totalCost += cost;
+         totalCow += result.cow;
+         totalBuff += result.buffalo;
+         totalCost += result.cost;
 
          doc.text(date, 14, y);
-         doc.text(c.toString(), 50, y);
-         doc.text(b.toString(), 70, y);
-         doc.text(cost.toFixed(0), 90, y);
+         doc.text(result.cow.toString(), 50, y);
+         doc.text(result.buffalo.toString(), 70, y);
+         doc.text(result.cost.toFixed(0), 90, y);
          if (val.note) {
              const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + '...' : val.note;
              doc.text(cleanNote, 120, y);
@@ -1122,6 +1118,24 @@ async function exportToPDF() {
 
 // Run Init
 init();
+
+// --- Helper Functions ---
+export function calculatePeakDay(entries) {
+    if (!entries || entries.length === 0) return null;
+
+    let maxMilk = -1;
+    let maxDate = '';
+
+    entries.forEach(([date, val]) => {
+         const t = (val.cow||0) + (val.buffalo||0);
+         if (t > maxMilk) {
+             maxMilk = t;
+             maxDate = date;
+         }
+    });
+
+    return { maxMilk, maxDate };
+}
 
 // --- Sidebar Logic ---
 const menuBtn = document.getElementById('menu-btn');
