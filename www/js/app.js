@@ -48622,11 +48622,7 @@ var state = {
     return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
   })()
 };
-var loginScreen = document.getElementById("login-screen");
 var dashboard = document.getElementById("dashboard");
-var secretCodeInput = document.getElementById("secret-code-input");
-var loginBtn = document.getElementById("login-btn");
-var loginError = document.getElementById("login-error");
 var dateInput = document.getElementById("entry-date");
 var decCowBtn = document.getElementById("dec-cow");
 var incCowBtn = document.getElementById("inc-cow");
@@ -48705,7 +48701,6 @@ async function init() {
   await loadData();
 }
 function showDashboard() {
-  if (loginScreen) loginScreen.style.display = "none";
   dashboard.classList.remove("hidden");
   renderSummary();
   renderFullHistory();

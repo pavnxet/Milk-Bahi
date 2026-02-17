@@ -41,11 +41,7 @@ let state = {
 };
 
 // --- UI Elements ---
-const loginScreen = document.getElementById('login-screen');
 const dashboard = document.getElementById('dashboard');
-const secretCodeInput = document.getElementById('secret-code-input');
-const loginBtn = document.getElementById('login-btn');
-const loginError = document.getElementById('login-error');
 
 const dateInput = document.getElementById('entry-date');
 // Controls
@@ -152,7 +148,6 @@ async function init() {
 
 function showDashboard() {
     // Remove login logic
-    if (loginScreen) loginScreen.style.display = 'none';
     dashboard.classList.remove('hidden');
 
     renderSummary();
