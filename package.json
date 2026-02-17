@@ -1,6 +1,6 @@
 {
-  "name": "milk-tracker",
-  "version": "2.0.0",
+  "name": "milk-bahi",
+  "version": "3.0.0",
   "description": "Daily milk tracking app for Mom.",
   "scripts": {
     "start": "npx cap serve",

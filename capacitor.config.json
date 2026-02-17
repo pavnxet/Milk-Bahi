@@ -1,6 +1,6 @@
 {
-  "appId": "com.milktracker.app",
-  "appName": "Milk Tracker",
+  "appId": "com.milkbahi.app",
+  "appName": "Milk Bahi",
   "webDir": "www",
   "server": {
     "cleartext": true

@@ -67,21 +67,21 @@ jobs:
             android/app/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK
-        run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/MilkBahi_v${{ env.VERSION }}.apk
+        run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/Milk_Bahi_v${{ env.VERSION }}.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MilkBahi_v${{ env.VERSION }}.apk
-          path: android/app/build/outputs/apk/release/MilkBahi_v${{ env.VERSION }}.apk
+          name: Milk_Bahi_v${{ env.VERSION }}.apk
+          path: android/app/build/outputs/apk/release/Milk_Bahi_v${{ env.VERSION }}.apk
 
       - name: Create Release
         if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}.${{ github.run_number }}
           name: Release v${{ env.VERSION }}.${{ github.run_number }}
-          files: android/app/build/outputs/apk/release/MilkBahi_v${{ env.VERSION }}.apk
+          files: android/app/build/outputs/apk/release/Milk_Bahi_v${{ env.VERSION }}.apk
           draft: false
           prerelease: false
           make_latest: true
