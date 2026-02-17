@@ -48824,19 +48824,29 @@ function getMonthData() {
   const entries2 = Object.entries(state.data).filter(([k2, v3]) => k2.startsWith(prefix));
   return entries2.sort((a3, b2) => b2[0].localeCompare(a3[0]));
 }
-function renderSummary() {
-  const entries2 = getMonthData();
+function getEntryStats(val) {
+  const cow = val.cow || 0;
+  const buffalo = val.buffalo || 0;
+  const cowPrice = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
+  const buffaloPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
+  const cost = cow * cowPrice + buffalo * buffaloPrice;
+  return { cow, buffalo, cowPrice, buffaloPrice, cost };
+}
+function calculateTotals(entries2) {
   let totalCow = 0;
   let totalBuff = 0;
   let totalCost = 0;
   entries2.forEach(([date, val]) => {
-    totalCow += val.cow || 0;
-    totalBuff += val.buffalo || 0;
-    const cPrice = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    totalCost += (val.cow || 0) * cPrice;
-    totalCost += (val.buffalo || 0) * bPrice;
+    const stats = getEntryStats(val);
+    totalCow += stats.cow;
+    totalBuff += stats.buffalo;
+    totalCost += stats.cost;
   });
+  return { totalCow, totalBuff, totalCost };
+}
+function renderSummary() {
+  const entries2 = getMonthData();
+  const { totalCow, totalBuff, totalCost } = calculateTotals(entries2);
   totalCowEl.innerText = `${totalCow}L`;
   totalBuffaloEl.innerText = `${totalBuff}L`;
   totalCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
@@ -49182,17 +49192,7 @@ restoreInput.addEventListener("change", (e2) => {
 });
 whatsappFab.addEventListener("click", () => {
   const entries2 = getMonthData();
-  let totalCow = 0;
-  let totalBuff = 0;
-  let totalCost = 0;
-  entries2.forEach(([date, val]) => {
-    totalCow += val.cow || 0;
-    totalBuff += val.buffalo || 0;
-    const cPrice = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    totalCost += (val.cow || 0) * cPrice;
-    totalCost += (val.buffalo || 0) * bPrice;
-  });
+  const { totalCow, totalBuff, totalCost } = calculateTotals(entries2);
   const [year, month] = dateInput.value.split("-");
   const monthName = new Date(dateInput.value).toLocaleString("default", { month: "long" });
   const text2 = `*Milk Report for ${monthName} ${year}* \u{1F95B}%0A---------------------------%0ACow Milk: ${totalCow.toFixed(1)} L%0ABuffalo Milk: ${totalBuff.toFixed(1)} L%0ATotal Cost: \u20B9${totalCost.toFixed(0)}%0A---------------------------%0AShared from Milk Bahi%0AMade with \u2764\uFE0F by Pavneet`;
@@ -49246,36 +49246,20 @@ function renderAnalytics() {
   const end = new Date(state.analyticsEnd);
   for (let d2 = new Date(start); d2 <= end; d2.setDate(d2.getDate() + 1)) {
     const dateKey = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
-    const existing = state.data[dateKey];
-    if (existing) {
-      const c4 = existing.cow || 0;
-      const b2 = existing.buffalo || 0;
-      const cP = existing.cowPrice !== void 0 ? existing.cowPrice : state.cowPrice;
-      const bP = existing.buffaloPrice !== void 0 ? existing.buffaloPrice : state.buffaloPrice;
-      totalCow += c4;
-      totalBuff += b2;
-      totalCost += c4 * cP + b2 * bP;
-      processedData.push({
-        label: `${d2.getDate()}/${d2.getMonth() + 1}`,
-        date: dateKey,
-        cow: c4,
-        buffalo: b2,
-        cost: c4 * cP + b2 * bP,
-        cowPrice: cP,
-        buffaloPrice: bP
-      });
-    } else {
-      processedData.push({
-        label: `${d2.getDate()}/${d2.getMonth() + 1}`,
-        date: dateKey,
-        cow: 0,
-        buffalo: 0,
-        cost: 0,
-        cowPrice: state.cowPrice,
-        // Just for ref
-        buffaloPrice: state.buffaloPrice
-      });
-    }
+    const existing = state.data[dateKey] || {};
+    const stats = getEntryStats(existing);
+    totalCow += stats.cow;
+    totalBuff += stats.buffalo;
+    totalCost += stats.cost;
+    processedData.push({
+      label: `${d2.getDate()}/${d2.getMonth() + 1}`,
+      date: dateKey,
+      cow: stats.cow,
+      buffalo: stats.buffalo,
+      cost: stats.cost,
+      cowPrice: stats.cowPrice,
+      buffaloPrice: stats.buffaloPrice
+    });
   }
   const daysCount = processedData.length;
   const avgDaily = daysCount > 0 ? (totalCow + totalBuff) / daysCount : 0;
@@ -49394,13 +49378,9 @@ function exportToCSV() {
   if (entries2.length === 0) return alert("No data to export");
   let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
   entries2.forEach(([date, val]) => {
-    const c4 = val.cow || 0;
-    const b2 = val.buffalo || 0;
-    const cP = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bP = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    const cost = c4 * cP + b2 * bP;
+    const stats = getEntryStats(val);
     const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
-    csvContent += `${date},${c4},${b2},${cP},${bP},${cost},${note}
+    csvContent += `${date},${stats.cow},${stats.buffalo},${stats.cowPrice},${stats.buffaloPrice},${stats.cost},${note}
 `;
   });
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -49436,18 +49416,14 @@ async function exportToPDF() {
       doc.addPage();
       y3 = 20;
     }
-    const c4 = val.cow || 0;
-    const b2 = val.buffalo || 0;
-    const cP = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bP = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    const cost = c4 * cP + b2 * bP;
-    totalCow += c4;
-    totalBuff += b2;
-    totalCost += cost;
+    const stats = getEntryStats(val);
+    totalCow += stats.cow;
+    totalBuff += stats.buffalo;
+    totalCost += stats.cost;
     doc.text(date, 14, y3);
-    doc.text(c4.toString(), 50, y3);
-    doc.text(b2.toString(), 70, y3);
-    doc.text(cost.toFixed(0), 90, y3);
+    doc.text(stats.cow.toString(), 50, y3);
+    doc.text(stats.buffalo.toString(), 70, y3);
+    doc.text(stats.cost.toFixed(0), 90, y3);
     if (val.note) {
       const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + "..." : val.note;
       doc.text(cleanNote, 120, y3);

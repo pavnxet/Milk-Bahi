@@ -288,24 +288,34 @@ function getMonthData() {
     return entries.sort((a, b) => b[0].localeCompare(a[0])); // Descending date
 }
 
-function renderSummary() {
-    const entries = getMonthData();
+function getEntryStats(val) {
+    const cow = val.cow || 0;
+    const buffalo = val.buffalo || 0;
+    // Use stored price if available, else current global price
+    const cowPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+    const buffaloPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+    const cost = (cow * cowPrice) + (buffalo * buffaloPrice);
+    return { cow, buffalo, cowPrice, buffaloPrice, cost };
+}
 
+function calculateTotals(entries) {
     let totalCow = 0;
     let totalBuff = 0;
     let totalCost = 0;
 
     entries.forEach(([date, val]) => {
-        totalCow += val.cow || 0;
-        totalBuff += val.buffalo || 0;
-
-        // Use stored price if available, else current global price
-        const cPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-        const bPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-
-        totalCost += (val.cow || 0) * cPrice;
-        totalCost += (val.buffalo || 0) * bPrice;
+        const stats = getEntryStats(val);
+        totalCow += stats.cow;
+        totalBuff += stats.buffalo;
+        totalCost += stats.cost;
     });
+
+    return { totalCow, totalBuff, totalCost };
+}
+
+function renderSummary() {
+    const entries = getMonthData();
+    const { totalCow, totalBuff, totalCost } = calculateTotals(entries);
 
     totalCowEl.innerText = `${totalCow}L`;
     totalBuffaloEl.innerText = `${totalBuff}L`;
@@ -733,21 +743,7 @@ restoreInput.addEventListener('change', (e) => {
 // --- WhatsApp Export ---
 whatsappFab.addEventListener('click', () => {
     const entries = getMonthData();
-
-    let totalCow = 0;
-    let totalBuff = 0;
-    let totalCost = 0;
-
-    entries.forEach(([date, val]) => {
-        totalCow += val.cow || 0;
-        totalBuff += val.buffalo || 0;
-
-        const cPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-        const bPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-
-        totalCost += (val.cow || 0) * cPrice;
-        totalCost += (val.buffalo || 0) * bPrice;
-    });
+    const { totalCow, totalBuff, totalCost } = calculateTotals(entries);
 
     const [year, month] = dateInput.value.split('-');
     const monthName = new Date(dateInput.value).toLocaleString('default', { month: 'long' });
@@ -841,39 +837,22 @@ function renderAnalytics() {
 
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
         const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-        const existing = state.data[dateKey];
+        const existing = state.data[dateKey] || {};
+        const stats = getEntryStats(existing);
 
-        if (existing) {
-            const c = existing.cow || 0;
-            const b = existing.buffalo || 0;
-            const cP = existing.cowPrice !== undefined ? existing.cowPrice : state.cowPrice;
-            const bP = existing.buffaloPrice !== undefined ? existing.buffaloPrice : state.buffaloPrice;
+        totalCow += stats.cow;
+        totalBuff += stats.buffalo;
+        totalCost += stats.cost;
 
-            totalCow += c;
-            totalBuff += b;
-            totalCost += (c * cP) + (b * bP);
-
-            processedData.push({
-                label: `${d.getDate()}/${d.getMonth()+1}`,
-                date: dateKey,
-                cow: c,
-                buffalo: b,
-                cost: (c * cP) + (b * bP),
-                cowPrice: cP,
-                buffaloPrice: bP
-            });
-        } else {
-            // Zero Day
-            processedData.push({
-                label: `${d.getDate()}/${d.getMonth()+1}`,
-                date: dateKey,
-                cow: 0,
-                buffalo: 0,
-                cost: 0,
-                cowPrice: state.cowPrice, // Just for ref
-                buffaloPrice: state.buffaloPrice
-            });
-        }
+        processedData.push({
+            label: `${d.getDate()}/${d.getMonth() + 1}`,
+            date: dateKey,
+            cow: stats.cow,
+            buffalo: stats.buffalo,
+            cost: stats.cost,
+            cowPrice: stats.cowPrice,
+            buffaloPrice: stats.buffaloPrice
+        });
     }
 
 
@@ -1010,14 +989,10 @@ function exportToCSV() {
     let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
 
     entries.forEach(([date, val]) => {
-         const c = val.cow || 0;
-         const b = val.buffalo || 0;
-         const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-         const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-         const cost = (c * cP) + (b * bP);
-         const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
+        const stats = getEntryStats(val);
+        const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
 
-         csvContent += `${date},${c},${b},${cP},${bP},${cost},${note}\n`;
+        csvContent += `${date},${stats.cow},${stats.buffalo},${stats.cowPrice},${stats.buffaloPrice},${stats.cost},${note}\n`;
     });
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1063,26 +1038,22 @@ async function exportToPDF() {
             y = 20;
         }
 
-         const c = val.cow || 0;
-         const b = val.buffalo || 0;
-         const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-         const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-         const cost = (c * cP) + (b * bP);
+        const stats = getEntryStats(val);
 
-         totalCow += c;
-         totalBuff += b;
-         totalCost += cost;
+        totalCow += stats.cow;
+        totalBuff += stats.buffalo;
+        totalCost += stats.cost;
 
-         doc.text(date, 14, y);
-         doc.text(c.toString(), 50, y);
-         doc.text(b.toString(), 70, y);
-         doc.text(cost.toFixed(0), 90, y);
-         if (val.note) {
-             const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + '...' : val.note;
-             doc.text(cleanNote, 120, y);
-         }
+        doc.text(date, 14, y);
+        doc.text(stats.cow.toString(), 50, y);
+        doc.text(stats.buffalo.toString(), 70, y);
+        doc.text(stats.cost.toFixed(0), 90, y);
+        if (val.note) {
+            const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + '...' : val.note;
+            doc.text(cleanNote, 120, y);
+        }
 
-         y += 7;
+        y += 7;
     });
 
     // Summary Section at the End
