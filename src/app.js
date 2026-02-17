@@ -1,12 +1,15 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import Chart from 'chart.js/auto';
+import { jsPDF } from 'jspdf';
 
 // --- Constants ---
 const STORAGE_KEY = "milk_tracker_data";
 const PRICE_COW_KEY = "milk_tracker_price_cow";
 const PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
 const MONTHLY_TARGET_KEY = "milk_tracker_monthly_target";
+const MONTHLY_BUDGET_KEY = "milk_tracker_monthly_budget";
 const THEME_KEY = "milk_tracker_theme";
 const REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
 const REMINDER_TIME_KEY = "milk_tracker_reminder_time";
@@ -15,10 +18,11 @@ const DATA_FILE = "data.json";
 
 // --- State ---
 let state = {
-    data: {}, // { "YYYY-MM-DD": { cow: float, buffalo: float } }
+    data: {}, // { "YYYY-MM-DD": { cow: float, buffalo: float, cowPrice: float, buffaloPrice: float } }
     cowPrice: 40,
     buffaloPrice: 55, // Default buffalo price
     monthlyTarget: 0,
+    monthlyBudget: 0,
     currentDate: (() => {
         const d = new Date();
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -65,10 +69,20 @@ const closeSettingsBtn = document.getElementById('close-settings');
 const priceCowInput = document.getElementById('price-cow-setting');
 const priceBuffaloInput = document.getElementById('price-buffalo-setting');
 const monthlyTargetInput = document.getElementById('monthly-target-setting');
+const monthlyBudgetInput = document.getElementById('monthly-budget-setting');
 const themeToggle = document.getElementById('theme-toggle');
 const reminderToggle = document.getElementById('reminder-toggle');
 const reminderTimeInput = document.getElementById('reminder-time');
 const whatsappFab = document.getElementById('whatsapp-fab');
+
+// Analytics Elements
+const viewSelector = document.getElementById('analytics-view-selector');
+const anaAvgDailyEl = document.getElementById('ana-avg-daily');
+const anaProjCostEl = document.getElementById('ana-proj-cost');
+const monthComparisonEl = document.getElementById('month-comparison');
+const peakDaysEl = document.getElementById('peak-days');
+const exportPdfBtn = document.getElementById('export-pdf-btn');
+const exportCsvBtn = document.getElementById('export-csv-btn');
 
 // Backup/Restore Elements
 const backupBtn = document.getElementById('backup-btn');
@@ -86,6 +100,9 @@ async function init() {
 
     const savedTarget = localStorage.getItem(MONTHLY_TARGET_KEY);
     if (savedTarget) state.monthlyTarget = parseFloat(savedTarget);
+
+    const savedBudget = localStorage.getItem(MONTHLY_BUDGET_KEY);
+    if (savedBudget) state.monthlyBudget = parseFloat(savedBudget);
 
     const savedTheme = localStorage.getItem(THEME_KEY);
     if (savedTheme === 'dark') {
@@ -112,6 +129,7 @@ async function init() {
     priceCowInput.value = state.cowPrice;
     priceBuffaloInput.value = state.buffaloPrice;
     if (state.monthlyTarget > 0) monthlyTargetInput.value = state.monthlyTarget;
+    if (state.monthlyBudget > 0) monthlyBudgetInput.value = state.monthlyBudget;
 
     // Init Dashboard directly
     showDashboard();
@@ -192,7 +210,13 @@ async function saveDataToDisk() {
 }
 
 async function saveData(date, qty) {
-    state.data[date] = qty;
+    // Save current prices with the entry to maintain history
+    const entry = {
+        ...qty,
+        cowPrice: state.cowPrice,
+        buffaloPrice: state.buffaloPrice
+    };
+    state.data[date] = entry;
     await saveDataToDisk();
     renderSummary();
     renderFullHistory();
@@ -258,11 +282,15 @@ function renderSummary() {
     let totalCost = 0;
 
     entries.forEach(([date, val]) => {
-        // val is { cow, buffalo } due to migration
         totalCow += val.cow || 0;
         totalBuff += val.buffalo || 0;
-        totalCost += (val.cow || 0) * state.cowPrice;
-        totalCost += (val.buffalo || 0) * state.buffaloPrice;
+
+        // Use stored price if available, else current global price
+        const cPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+        const bPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+
+        totalCost += (val.cow || 0) * cPrice;
+        totalCost += (val.buffalo || 0) * bPrice;
     });
 
     totalCowEl.innerText = `${totalCow}L`;
@@ -323,6 +351,9 @@ function renderFullHistory() {
         amountSpan.textContent = text;
         amountSpan.style.fontSize = '12px';
         detailsDiv.appendChild(amountSpan);
+
+        // Show price if stored and different from current? Maybe just show cost.
+        // For simplicity, stick to volume.
 
         if (qty.note) {
             const noteSpan = document.createElement('span');
@@ -414,6 +445,12 @@ monthlyTargetInput.addEventListener('change', (e) => {
     renderSummary();
 });
 
+monthlyBudgetInput.addEventListener('change', (e) => {
+    state.monthlyBudget = parseFloat(e.target.value) || 0;
+    localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
+    renderSummary(); // Re-render summary (and indirectly analytics if active)
+});
+
 themeToggle.addEventListener('change', (e) => {
     state.isDark = e.target.checked;
     document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
@@ -500,6 +537,7 @@ backupBtn.addEventListener('click', async () => {
                 cowPrice: state.cowPrice,
                 buffaloPrice: state.buffaloPrice,
                 monthlyTarget: state.monthlyTarget,
+                monthlyBudget: state.monthlyBudget,
                 isDark: state.isDark,
                 reminderEnabled: state.reminderEnabled,
                 reminderTime: state.reminderTime
@@ -536,6 +574,7 @@ backupBtn.addEventListener('click', async () => {
                 cowPrice: state.cowPrice,
                 buffaloPrice: state.buffaloPrice,
                 monthlyTarget: state.monthlyTarget,
+                monthlyBudget: state.monthlyBudget,
                 isDark: state.isDark,
                 reminderEnabled: state.reminderEnabled,
                 reminderTime: state.reminderTime
@@ -587,7 +626,9 @@ restoreInput.addEventListener('change', (e) => {
 
                         const entry = {
                             cow: typeof val.cow === 'number' ? val.cow : 0,
-                            buffalo: typeof val.buffalo === 'number' ? val.buffalo : 0
+                            buffalo: typeof val.buffalo === 'number' ? val.buffalo : 0,
+                            cowPrice: typeof val.cowPrice === 'number' ? val.cowPrice : undefined,
+                            buffaloPrice: typeof val.buffaloPrice === 'number' ? val.buffaloPrice : undefined
                         };
                         if (typeof val.note === 'string') entry.note = val.note; // Restore note
 
@@ -610,6 +651,11 @@ restoreInput.addEventListener('change', (e) => {
                         state.monthlyTarget = imported.settings.monthlyTarget;
                         localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
                         monthlyTargetInput.value = state.monthlyTarget;
+                    }
+                     if (typeof imported.settings.monthlyBudget === 'number') {
+                        state.monthlyBudget = imported.settings.monthlyBudget;
+                        localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
+                        monthlyBudgetInput.value = state.monthlyBudget;
                     }
 
                     // Restore Theme
@@ -681,8 +727,12 @@ whatsappFab.addEventListener('click', () => {
     entries.forEach(([date, val]) => {
         totalCow += val.cow || 0;
         totalBuff += val.buffalo || 0;
-        totalCost += (val.cow || 0) * state.cowPrice;
-        totalCost += (val.buffalo || 0) * state.buffaloPrice;
+
+        const cPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+        const bPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+
+        totalCost += (val.cow || 0) * cPrice;
+        totalCost += (val.buffalo || 0) * bPrice;
     });
 
     const [year, month] = dateInput.value.split('-');
@@ -726,150 +776,414 @@ navItems.forEach(item => {
     });
 });
 
-function renderAnalytics() {
-    const entries = getMonthData(); // Returns sorted by date desc
-    // Sort by date ASC for the graph
-    const sortedEntries = [...entries].sort((a, b) => a[0].localeCompare(b[0]));
+// --- Analytics View Logic ---
+let analyticsCharts = {};
 
-    const milkContainer = document.getElementById('graph-milk');
-    const costContainer = document.getElementById('graph-cost');
-    const avgDailyEl = document.getElementById('ana-avg-daily');
-    const projCostEl = document.getElementById('ana-proj-cost');
+viewSelector.addEventListener('change', () => renderAnalytics());
+exportPdfBtn.addEventListener('click', exportToPDF);
+exportCsvBtn.addEventListener('click', exportToCSV);
 
-    milkContainer.innerHTML = '';
-    costContainer.innerHTML = '';
 
-    if (sortedEntries.length === 0) {
-        milkContainer.innerHTML = '<p style="font-size: 12px; margin: auto; color: var(--secondary-text);">No data for this month</p>';
-        costContainer.innerHTML = '<p style="font-size: 12px; margin: auto; color: var(--secondary-text);">No data for this month</p>';
-        avgDailyEl.innerText = '0L';
-        projCostEl.innerText = '₹0';
-        return;
+function getFilteredDataForAnalytics() {
+    const view = viewSelector.value; // 'monthly' or 'yearly'
+    const today = new Date(dateInput.value); // Use currently selected date in Home tab as reference?
+    // Actually, usually users expect "Current Month" or "Current Year" based on today, or based on the selected date.
+    // Let's stick to the selected date from Home tab as the anchor.
+
+    const year = today.getFullYear();
+    const month = today.getMonth(); // 0-indexed
+
+    let entries = [];
+    let label = "";
+
+    if (view === 'monthly') {
+        const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+        entries = Object.entries(state.data).filter(([k, v]) => k.startsWith(prefix));
+        label = today.toLocaleString('default', { month: 'long', year: 'numeric' });
+    } else {
+        // Yearly
+        const prefix = `${year}-`;
+        entries = Object.entries(state.data).filter(([k, v]) => k.startsWith(prefix));
+        label = `Year ${year}`;
     }
 
-    // --- Calculations ---
-    let totalMilk = 0;
+    // Sort chronological
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+    return { entries, label, year, month };
+}
+
+function renderAnalytics() {
+    const { entries, label, year, month } = getFilteredDataForAnalytics();
+    const view = viewSelector.value;
+
+    // 1. Destroy old charts
+    if (analyticsCharts['distribution']) analyticsCharts['distribution'].destroy();
+    if (analyticsCharts['trend']) analyticsCharts['trend'].destroy();
+    if (analyticsCharts['price']) analyticsCharts['price'].destroy();
+
+    // 2. Prepare Data
+    let totalCow = 0;
+    let totalBuff = 0;
     let totalCost = 0;
+    let daysWithData = new Set();
 
-    // Determine max values for scaling
-    // We need max(total daily milk) and max(total daily cost)
-    let maxDailyMilk = 0;
-    let maxDailyCost = 0;
+    // Fill Missing Days Logic
+    let processedData = [];
 
-    sortedEntries.forEach(([date, val]) => {
-        const c = val.cow || 0;
-        const b = val.buffalo || 0;
-        const dayTotal = c + b;
-        const dayCost = (c * state.cowPrice) + (b * state.buffaloPrice);
+    if (view === 'monthly') {
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateKey = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const existing = state.data[dateKey];
 
-        totalMilk += dayTotal;
-        totalCost += dayCost;
+            if (existing) {
+                const c = existing.cow || 0;
+                const b = existing.buffalo || 0;
+                const cP = existing.cowPrice !== undefined ? existing.cowPrice : state.cowPrice;
+                const bP = existing.buffaloPrice !== undefined ? existing.buffaloPrice : state.buffaloPrice;
 
-        if (dayTotal > maxDailyMilk) maxDailyMilk = dayTotal;
-        if (dayCost > maxDailyCost) maxDailyCost = dayCost;
+                totalCow += c;
+                totalBuff += b;
+                totalCost += (c * cP) + (b * bP);
+                daysWithData.add(d);
+
+                processedData.push({
+                    day: d,
+                    date: dateKey,
+                    cow: c,
+                    buffalo: b,
+                    cost: (c * cP) + (b * bP),
+                    cowPrice: cP,
+                    buffaloPrice: bP
+                });
+            } else {
+                // Zero Day
+                processedData.push({
+                    day: d,
+                    date: dateKey,
+                    cow: 0,
+                    buffalo: 0,
+                    cost: 0,
+                    cowPrice: state.cowPrice, // Just for ref
+                    buffaloPrice: state.buffaloPrice
+                });
+            }
+        }
+    } else {
+        // Yearly View - Aggregate by Month
+        // This is a different graph structure? The prompt implies "Timeline".
+        // For yearly, maybe we show Months on X-axis?
+        // Let's do daily timeline for now or Monthly Aggregates?
+        // Showing 365 bars is too much. Let's aggregate by Month for Yearly view.
+
+        const monthlyAgg = {};
+        for(let m=0; m<12; m++) {
+            monthlyAgg[m] = { cow: 0, buffalo: 0, cost: 0, count: 0 };
+        }
+
+        entries.forEach(([date, val]) => {
+             const d = new Date(date);
+             const m = d.getMonth();
+             const c = val.cow || 0;
+             const b = val.buffalo || 0;
+             const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+             const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+
+             monthlyAgg[m].cow += c;
+             monthlyAgg[m].buffalo += b;
+             monthlyAgg[m].cost += (c * cP) + (b * bP);
+             monthlyAgg[m].count++;
+
+             totalCow += c;
+             totalBuff += b;
+             totalCost += (c * cP) + (b * bP);
+        });
+
+        for(let m=0; m<12; m++) {
+             processedData.push({
+                 label: new Date(year, m, 1).toLocaleString('default', { month: 'short' }),
+                 cow: monthlyAgg[m].cow,
+                 buffalo: monthlyAgg[m].buffalo,
+                 cost: monthlyAgg[m].cost,
+                 // Avg price not really relevant on aggregated volume bar
+             });
+        }
+    }
+
+    // 3. Stats Update
+    const dataCount = entries.length; // Actual entries
+    const avgDaily = dataCount > 0 ? (totalCow + totalBuff) / dataCount : 0;
+
+    anaAvgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
+
+    // Projected Cost (Only relevant for Monthly)
+    if (view === 'monthly') {
+        const daysInMonth = processedData.length;
+        const avgCost = dataCount > 0 ? totalCost / dataCount : 0;
+        const projected = avgCost * daysInMonth;
+        anaProjCostEl.innerText = `₹${projected.toFixed(0)}`;
+
+        // Budget Check
+        if (state.monthlyBudget > 0 && projected > state.monthlyBudget) {
+            anaProjCostEl.style.color = '#ef4444'; // Red
+            anaProjCostEl.innerText += ` (Over Budget)`;
+        } else {
+            anaProjCostEl.style.color = 'var(--text-color)';
+        }
+
+        // Peak Days
+        let maxMilk = -1; let maxDate = '';
+        let minMilk = 9999; let minDate = '';
+
+        entries.forEach(([date, val]) => {
+             const t = (val.cow||0) + (val.buffalo||0);
+             if (t > maxMilk) { maxMilk = t; maxDate = date; }
+             if (t < minMilk) { minMilk = t; minDate = date; }
+        });
+
+        if (entries.length > 0) {
+            peakDaysEl.innerText = `Max: ${maxMilk}L (${new Date(maxDate).getDate()}) | Min: ${minMilk}L (${new Date(minDate).getDate()})`;
+        } else {
+            peakDaysEl.innerText = "No Data";
+        }
+
+        // Month Over Month Comparison
+        // Calc previous month total cost
+        // Prev Month
+        const prevDate = new Date(year, month - 1, 1);
+        const prevPrefix = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+        const prevEntries = Object.entries(state.data).filter(([k, v]) => k.startsWith(prevPrefix));
+        let prevTotalCost = 0;
+        prevEntries.forEach(([k, v]) => {
+             const cP = v.cowPrice !== undefined ? v.cowPrice : state.cowPrice; // Fallback might be inaccurate for hist but ok
+             const bP = v.buffaloPrice !== undefined ? v.buffaloPrice : state.buffaloPrice;
+             prevTotalCost += ((v.cow||0)*cP) + ((v.buffalo||0)*bP);
+        });
+
+        const diff = totalCost - prevTotalCost;
+        if (prevEntries.length === 0) {
+             monthComparisonEl.innerText = "No prev month data";
+        } else {
+             const arrow = diff > 0 ? "↑" : "↓";
+             monthComparisonEl.innerText = `${arrow} ₹${Math.abs(diff).toFixed(0)} vs last month`;
+             monthComparisonEl.style.color = diff > 0 ? '#ef4444' : 'var(--success-color)';
+        }
+
+    } else {
+        anaProjCostEl.innerText = "-";
+        peakDaysEl.innerText = "-";
+        monthComparisonEl.innerText = "-";
+    }
+
+    // 4. Render Charts using Chart.js
+
+    // Distribution Pie
+    const ctxDist = document.getElementById('chart-distribution').getContext('2d');
+    analyticsCharts['distribution'] = new Chart(ctxDist, {
+        type: 'doughnut',
+        data: {
+            labels: ['Cow', 'Buffalo'],
+            datasets: [{
+                data: [totalCow, totalBuff],
+                backgroundColor: ['#4ade80', '#FF9500'], // Accent & Orange
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right' }
+            }
+        }
     });
 
-    if (maxDailyMilk === 0) maxDailyMilk = 1; // Prevent div by zero
-    if (maxDailyCost === 0) maxDailyCost = 1;
+    // Trend Stacked Bar
+    const ctxTrend = document.getElementById('chart-trend').getContext('2d');
+    const labels = view === 'monthly' ? processedData.map(d => d.day) : processedData.map(d => d.label);
+    const cowData = processedData.map(d => d.cow);
+    const buffData = processedData.map(d => d.buffalo);
 
-    // Averages & Projections
-    const daysRecorded = sortedEntries.length;
-    const avgDaily = totalMilk / daysRecorded;
-
-    // Project cost: Avg Daily Cost * Days in Month
-    const dateObj = new Date(dateInput.value);
-    const daysInMonth = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 0).getDate();
-    const avgDailyCost = totalCost / daysRecorded;
-    const projectedCost = avgDailyCost * daysInMonth;
-
-    avgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
-    projCostEl.innerText = `₹${projectedCost.toFixed(0)}`;
-
-
-    // --- Graph Rendering ---
-    const GRAPH_HEIGHT = 140; // Approx pixels
-
-    sortedEntries.forEach(([date, val]) => {
-        const day = new Date(date).getDate();
-        const c = val.cow || 0;
-        const b = val.buffalo || 0;
-
-        const dayCost = (c * state.cowPrice) + (b * state.buffaloPrice);
-
-        // --- Milk Stacked Graph ---
-        // Cow (Bottom) + Buffalo (Top)
-
-        const milkWrapper = document.createElement('div');
-        milkWrapper.style.display = 'flex';
-        milkWrapper.style.flexDirection = 'column';
-        milkWrapper.style.alignItems = 'center';
-        milkWrapper.style.justifyContent = 'flex-end';
-        milkWrapper.style.height = '100%';
-        milkWrapper.style.minWidth = '20px'; // Spacing
-
-        const barContainer = document.createElement('div');
-        barContainer.style.display = 'flex';
-        barContainer.style.flexDirection = 'column-reverse'; // Stack from bottom
-        barContainer.style.width = '12px';
-        barContainer.style.background = 'rgba(0,0,0,0.05)';
-        barContainer.style.borderRadius = '4px 4px 0 0';
-        barContainer.style.overflow = 'hidden';
-
-        const cowH = (c / maxDailyMilk) * GRAPH_HEIGHT;
-        const buffH = (b / maxDailyMilk) * GRAPH_HEIGHT;
-
-        // Cow Bar
-        const cowBar = document.createElement('div');
-        cowBar.style.height = `${cowH}px`;
-        cowBar.style.width = '100%';
-        cowBar.style.background = 'var(--accent-color)'; // Cow Color
-
-        // Buff Bar
-        const buffBar = document.createElement('div');
-        buffBar.style.height = `${buffH}px`;
-        buffBar.style.width = '100%';
-        buffBar.style.background = '#FF9500'; // Buff Color (Orange)
-
-        barContainer.appendChild(cowBar);
-        barContainer.appendChild(buffBar);
-
-        const milkLabel = document.createElement('div');
-        milkLabel.innerText = day;
-        milkLabel.style.fontSize = '9px';
-        milkLabel.style.color = 'var(--secondary-text)';
-        milkLabel.style.marginTop = '4px';
-
-        milkWrapper.appendChild(barContainer);
-        milkWrapper.appendChild(milkLabel);
-        milkContainer.appendChild(milkWrapper);
-
-
-        // --- Cost Graph Item ---
-        const costWrapper = document.createElement('div');
-        costWrapper.style.display = 'flex';
-        costWrapper.style.flexDirection = 'column';
-        costWrapper.style.alignItems = 'center';
-        costWrapper.style.justifyContent = 'flex-end';
-        costWrapper.style.height = '100%';
-        costWrapper.style.minWidth = '20px';
-
-        const costBar = document.createElement('div');
-        const costH = (dayCost / maxDailyCost) * GRAPH_HEIGHT;
-        costBar.style.height = `${costH}px`;
-        costBar.style.width = '12px';
-        costBar.style.background = 'var(--success-color)';
-        costBar.style.borderRadius = '4px 4px 0 0';
-
-        const costLabel = document.createElement('div');
-        costLabel.innerText = day;
-        costLabel.style.fontSize = '9px';
-        costLabel.style.color = 'var(--secondary-text)';
-        costLabel.style.marginTop = '4px';
-
-        costWrapper.appendChild(costBar);
-        costWrapper.appendChild(costLabel);
-        costContainer.appendChild(costWrapper);
+    analyticsCharts['trend'] = new Chart(ctxTrend, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Cow',
+                    data: cowData,
+                    backgroundColor: '#4ade80',
+                    stack: 'Stack 0',
+                },
+                {
+                    label: 'Buffalo',
+                    data: buffData,
+                    backgroundColor: '#FF9500',
+                    stack: 'Stack 0',
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: { stacked: true, beginAtZero: true }
+            },
+            plugins: {
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                }
+            }
+        }
     });
+
+    // Price Trend Line
+    // Only meaningful for monthly view daily breakdown
+    const ctxPrice = document.getElementById('chart-price').getContext('2d');
+
+    if (view === 'monthly') {
+        const pLabels = processedData.map(d => d.day);
+        const pCow = processedData.map(d => d.cowPrice);
+        const pBuff = processedData.map(d => d.buffaloPrice);
+
+        analyticsCharts['price'] = new Chart(ctxPrice, {
+            type: 'line',
+            data: {
+                labels: pLabels,
+                datasets: [
+                    {
+                        label: 'Cow Price',
+                        data: pCow,
+                        borderColor: '#4ade80',
+                        tension: 0.1,
+                        pointRadius: 1
+                    },
+                    {
+                        label: 'Buff Price',
+                        data: pBuff,
+                        borderColor: '#FF9500',
+                        tension: 0.1,
+                        pointRadius: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: false } // Price usually doesn't start at 0
+                }
+            }
+        });
+    } else {
+        // Clear or show msg for Yearly?
+        // We can show average monthly price? Too complex for now, just hide or show empty.
+        // Or re-use for Cost Trend?
+        // Let's just show Cost Trend for yearly?
+        // The prompt asked for "Price Trend Tracking" specifically.
+        // For yearly, let's just show 0 or hide.
+         analyticsCharts['price'] = new Chart(ctxPrice, {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: { plugins: { title: { display: true, text: 'Select Monthly View for Price Trend' } } }
+        });
+    }
+}
+
+// --- Export Functions ---
+function exportToCSV() {
+    const { entries, label } = getFilteredDataForAnalytics();
+    if (entries.length === 0) return alert("No data to export");
+
+    let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
+
+    entries.forEach(([date, val]) => {
+         const c = val.cow || 0;
+         const b = val.buffalo || 0;
+         const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+         const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+         const cost = (c * cP) + (b * bP);
+         const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
+
+         csvContent += `${date},${c},${b},${cP},${bP},${cost},${note}\n`;
+    });
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `milk_report_${label.replace(/ /g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function exportToPDF() {
+    const { entries, label } = getFilteredDataForAnalytics();
+    if (entries.length === 0) return alert("No data to export");
+
+    const doc = new jsPDF();
+
+    doc.setFontSize(18);
+    doc.text(`Milk Report - ${label}`, 14, 22);
+
+    doc.setFontSize(11);
+    doc.setTextColor(100);
+
+    // Calculate Totals
+    let totalCow = 0, totalBuff = 0, totalCost = 0;
+    entries.forEach(([k, v]) => {
+        const cP = v.cowPrice !== undefined ? v.cowPrice : state.cowPrice;
+        const bP = v.buffaloPrice !== undefined ? v.buffaloPrice : state.buffaloPrice;
+        totalCow += v.cow||0;
+        totalBuff += v.buffalo||0;
+        totalCost += ((v.cow||0)*cP) + ((v.buffalo||0)*bP);
+    });
+
+    doc.text(`Total Cow: ${totalCow.toFixed(1)} L`, 14, 30);
+    doc.text(`Total Buffalo: ${totalBuff.toFixed(1)} L`, 14, 36);
+    doc.text(`Total Cost: Rs. ${totalCost.toFixed(0)}`, 14, 42);
+
+    // Simple Table
+    let y = 55;
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.text("Date", 14, y);
+    doc.text("Cow", 50, y);
+    doc.text("Buff", 70, y);
+    doc.text("Cost", 90, y);
+    doc.text("Note", 120, y);
+
+    doc.line(14, y+2, 200, y+2);
+    y += 8;
+
+    entries.forEach(([date, val]) => {
+        if (y > 280) {
+            doc.addPage();
+            y = 20;
+        }
+
+         const c = val.cow || 0;
+         const b = val.buffalo || 0;
+         const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+         const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+         const cost = (c * cP) + (b * bP);
+
+         doc.text(date, 14, y);
+         doc.text(c.toString(), 50, y);
+         doc.text(b.toString(), 70, y);
+         doc.text(cost.toFixed(0), 90, y);
+         if (val.note) {
+             const cleanNote = val.note.length > 20 ? val.note.substring(0, 18) + '...' : val.note;
+             doc.text(cleanNote, 120, y);
+         }
+
+         y += 7;
+    });
+
+    doc.save(`milk_report_${label.replace(/ /g, '_')}.pdf`);
 }
 
 // Run Init

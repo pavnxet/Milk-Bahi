@@ -14,7 +14,9 @@
     "@capacitor/filesystem": "^5.2.2",
     "@capacitor/local-notifications": "^5.0.8",
     "@capacitor/share": "^5.0.8",
-    "@capacitor/toast": "^5.0.8"
+    "@capacitor/toast": "^5.0.8",
+    "chart.js": "^4.5.1",
+    "jspdf": "^4.1.0"
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
