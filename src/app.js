@@ -514,7 +514,6 @@ async function scheduleNotification() {
                 }
             }]
         });
-        // alert(`Reminder set for ${state.reminderTime}`);
     } catch (e) {
         console.error("Error scheduling notification", e);
     }
