@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: https://*.githubusercontent.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: https://*.githubusercontent.com blob:;">
     <title>Milk Bahi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -140,10 +140,16 @@
 
             <!-- Tab: Analytics -->
             <div id="tab-analytics" class="tab-content">
-                <header><h2>Analytics</h2></header>
+                <header>
+                    <h2 style="margin-right: auto;">Analytics</h2>
+                    <select id="analytics-view-selector" style="font-size: 14px; padding: 4px; border-radius: 6px; border: none; background: rgba(0,0,0,0.05);">
+                        <option value="monthly">Monthly</option>
+                        <option value="yearly">Yearly</option>
+                    </select>
+                </header>
 
                 <div class="glass-card">
-                    <h3>Monthly Summary</h3>
+                    <h3>Summary</h3>
                     <div class="stats-grid">
                         <div class="stat-item">
                             <div class="stat-value" id="ana-avg-daily" style="font-size: 16px;">0L</div>
@@ -154,20 +160,36 @@
                             <div class="stat-label">Proj. Cost</div>
                         </div>
                     </div>
+                     <div style="margin-top: 15px; font-size: 12px; color: var(--secondary-text); display: flex; justify-content: space-between;">
+                        <span id="month-comparison">--</span>
+                        <span id="peak-days">--</span>
+                    </div>
                 </div>
 
                 <div class="glass-card">
-                     <h3>Daily Milk Trend (L)</h3>
-                     <div style="font-size: 10px; color: var(--secondary-text); margin-bottom: 5px;">
-                         <span style="color: var(--accent-color);">■ Cow</span>
-                         <span style="color: #FF9500;">■ Buffalo</span>
+                     <h3>Distribution</h3>
+                     <div style="height: 200px; width: 100%; position: relative;">
+                         <canvas id="chart-distribution"></canvas>
                      </div>
-                     <div id="graph-milk" style="height: 180px; width: 100%; display: flex; align-items: flex-end; gap: 6px; overflow-x: auto; padding-top: 10px; padding-bottom: 5px;"></div>
                 </div>
 
                 <div class="glass-card">
-                     <h3>Daily Expense (₹)</h3>
-                     <div id="graph-cost" style="height: 180px; width: 100%; display: flex; align-items: flex-end; gap: 6px; overflow-x: auto; padding-top: 10px; padding-bottom: 5px;"></div>
+                     <h3>Milk Trend</h3>
+                     <div style="height: 200px; width: 100%; position: relative;">
+                         <canvas id="chart-trend"></canvas>
+                     </div>
+                </div>
+
+                 <div class="glass-card">
+                     <h3>Price Trend</h3>
+                     <div style="height: 200px; width: 100%; position: relative;">
+                         <canvas id="chart-price"></canvas>
+                     </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                    <button id="export-pdf-btn" class="secondary" style="flex: 1; font-size: 12px;">Export PDF</button>
+                    <button id="export-csv-btn" class="secondary" style="flex: 1; font-size: 12px;">Export CSV</button>
                 </div>
             </div>
 
@@ -220,6 +242,12 @@
                 <label>Monthly Target (L)</label>
                 <input type="number" id="monthly-target-setting" placeholder="Optional" value="">
                 <p style="font-size: 10px; color: var(--secondary-text);">Set a goal for total milk volume per month.</p>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label>Monthly Budget (₹)</label>
+                <input type="number" id="monthly-budget-setting" placeholder="Optional" value="">
+                <p style="font-size: 10px; color: var(--secondary-text);">Set a max spending limit per month.</p>
             </div>
 
             <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
