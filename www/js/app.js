@@ -48612,7 +48612,15 @@ var state = {
   })(),
   isDark: false,
   reminderEnabled: false,
-  reminderTime: "08:00"
+  reminderTime: "08:00",
+  analyticsStart: (() => {
+    const d2 = /* @__PURE__ */ new Date();
+    return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-01`;
+  })(),
+  analyticsEnd: (() => {
+    const d2 = /* @__PURE__ */ new Date();
+    return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
+  })()
 };
 var loginScreen = document.getElementById("login-screen");
 var dashboard = document.getElementById("dashboard");
@@ -48648,7 +48656,9 @@ var themeToggle = document.getElementById("theme-toggle");
 var reminderToggle = document.getElementById("reminder-toggle");
 var reminderTimeInput = document.getElementById("reminder-time");
 var whatsappFab = document.getElementById("whatsapp-fab");
-var viewSelector = document.getElementById("analytics-view-selector");
+var analyticsStartDateInput = document.getElementById("analytics-start-date");
+var analyticsEndDateInput = document.getElementById("analytics-end-date");
+var analyticsFilterBtn = document.getElementById("analytics-filter-btn");
 var anaAvgDailyEl = document.getElementById("ana-avg-daily");
 var anaProjCostEl = document.getElementById("ana-proj-cost");
 var monthComparisonEl = document.getElementById("month-comparison");
@@ -48689,6 +48699,8 @@ async function init() {
   priceBuffaloInput.value = state.buffaloPrice;
   if (state.monthlyTarget > 0) monthlyTargetInput.value = state.monthlyTarget;
   if (state.monthlyBudget > 0) monthlyBudgetInput.value = state.monthlyBudget;
+  analyticsStartDateInput.value = state.analyticsStart;
+  analyticsEndDateInput.value = state.analyticsEnd;
   showDashboard();
   await loadData();
 }
@@ -49204,161 +49216,87 @@ navItems.forEach((item) => {
   });
 });
 var analyticsCharts = {};
-viewSelector.addEventListener("change", () => renderAnalytics());
+analyticsFilterBtn.addEventListener("click", () => {
+  state.analyticsStart = analyticsStartDateInput.value;
+  state.analyticsEnd = analyticsEndDateInput.value;
+  renderAnalytics();
+});
 exportPdfBtn.addEventListener("click", exportToPDF);
 exportCsvBtn.addEventListener("click", exportToCSV);
 function getFilteredDataForAnalytics() {
-  const view = viewSelector.value;
-  const today = new Date(dateInput.value);
-  const year = today.getFullYear();
-  const month = today.getMonth();
-  let entries2 = [];
-  let label = "";
-  if (view === "monthly") {
-    const prefix = `${year}-${String(month + 1).padStart(2, "0")}`;
-    entries2 = Object.entries(state.data).filter(([k2, v3]) => k2.startsWith(prefix));
-    label = today.toLocaleString("default", { month: "long", year: "numeric" });
-  } else {
-    const prefix = `${year}-`;
-    entries2 = Object.entries(state.data).filter(([k2, v3]) => k2.startsWith(prefix));
-    label = `Year ${year}`;
-  }
-  entries2.sort((a3, b2) => a3[0].localeCompare(b2[0]));
-  return { entries: entries2, label, year, month };
+  const start = new Date(state.analyticsStart);
+  const end = new Date(state.analyticsEnd);
+  const entries2 = Object.entries(state.data).filter(([dateStr, val]) => {
+    const d2 = new Date(dateStr);
+    return d2 >= start && d2 <= end;
+  }).sort((a3, b2) => a3[0].localeCompare(b2[0]));
+  const label = `${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
+  return { entries: entries2, label };
 }
 function renderAnalytics() {
-  const { entries: entries2, label, year, month } = getFilteredDataForAnalytics();
-  const view = viewSelector.value;
+  const { entries: entries2, label } = getFilteredDataForAnalytics();
   if (analyticsCharts["distribution"]) analyticsCharts["distribution"].destroy();
   if (analyticsCharts["trend"]) analyticsCharts["trend"].destroy();
   if (analyticsCharts["price"]) analyticsCharts["price"].destroy();
   let totalCow = 0;
   let totalBuff = 0;
   let totalCost = 0;
-  let daysWithData = /* @__PURE__ */ new Set();
   let processedData = [];
-  if (view === "monthly") {
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    for (let d2 = 1; d2 <= daysInMonth; d2++) {
-      const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(d2).padStart(2, "0")}`;
-      const existing = state.data[dateKey];
-      if (existing) {
-        const c4 = existing.cow || 0;
-        const b2 = existing.buffalo || 0;
-        const cP = existing.cowPrice !== void 0 ? existing.cowPrice : state.cowPrice;
-        const bP = existing.buffaloPrice !== void 0 ? existing.buffaloPrice : state.buffaloPrice;
-        totalCow += c4;
-        totalBuff += b2;
-        totalCost += c4 * cP + b2 * bP;
-        daysWithData.add(d2);
-        processedData.push({
-          day: d2,
-          date: dateKey,
-          cow: c4,
-          buffalo: b2,
-          cost: c4 * cP + b2 * bP,
-          cowPrice: cP,
-          buffaloPrice: bP
-        });
-      } else {
-        processedData.push({
-          day: d2,
-          date: dateKey,
-          cow: 0,
-          buffalo: 0,
-          cost: 0,
-          cowPrice: state.cowPrice,
-          // Just for ref
-          buffaloPrice: state.buffaloPrice
-        });
-      }
-    }
-  } else {
-    const monthlyAgg = {};
-    for (let m4 = 0; m4 < 12; m4++) {
-      monthlyAgg[m4] = { cow: 0, buffalo: 0, cost: 0, count: 0 };
-    }
-    entries2.forEach(([date, val]) => {
-      const d2 = new Date(date);
-      const m4 = d2.getMonth();
-      const c4 = val.cow || 0;
-      const b2 = val.buffalo || 0;
-      const cP = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-      const bP = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-      monthlyAgg[m4].cow += c4;
-      monthlyAgg[m4].buffalo += b2;
-      monthlyAgg[m4].cost += c4 * cP + b2 * bP;
-      monthlyAgg[m4].count++;
+  const start = new Date(state.analyticsStart);
+  const end = new Date(state.analyticsEnd);
+  for (let d2 = new Date(start); d2 <= end; d2.setDate(d2.getDate() + 1)) {
+    const dateKey = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
+    const existing = state.data[dateKey];
+    if (existing) {
+      const c4 = existing.cow || 0;
+      const b2 = existing.buffalo || 0;
+      const cP = existing.cowPrice !== void 0 ? existing.cowPrice : state.cowPrice;
+      const bP = existing.buffaloPrice !== void 0 ? existing.buffaloPrice : state.buffaloPrice;
       totalCow += c4;
       totalBuff += b2;
       totalCost += c4 * cP + b2 * bP;
-    });
-    for (let m4 = 0; m4 < 12; m4++) {
       processedData.push({
-        label: new Date(year, m4, 1).toLocaleString("default", { month: "short" }),
-        cow: monthlyAgg[m4].cow,
-        buffalo: monthlyAgg[m4].buffalo,
-        cost: monthlyAgg[m4].cost
-        // Avg price not really relevant on aggregated volume bar
+        label: `${d2.getDate()}/${d2.getMonth() + 1}`,
+        date: dateKey,
+        cow: c4,
+        buffalo: b2,
+        cost: c4 * cP + b2 * bP,
+        cowPrice: cP,
+        buffaloPrice: bP
+      });
+    } else {
+      processedData.push({
+        label: `${d2.getDate()}/${d2.getMonth() + 1}`,
+        date: dateKey,
+        cow: 0,
+        buffalo: 0,
+        cost: 0,
+        cowPrice: state.cowPrice,
+        // Just for ref
+        buffaloPrice: state.buffaloPrice
       });
     }
   }
-  const dataCount = entries2.length;
-  const avgDaily = dataCount > 0 ? (totalCow + totalBuff) / dataCount : 0;
+  const daysCount = processedData.length;
+  const avgDaily = daysCount > 0 ? (totalCow + totalBuff) / daysCount : 0;
   anaAvgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
-  if (view === "monthly") {
-    const daysInMonth = processedData.length;
-    const avgCost = dataCount > 0 ? totalCost / dataCount : 0;
-    const projected = avgCost * daysInMonth;
-    anaProjCostEl.innerText = `\u20B9${projected.toFixed(0)}`;
-    if (state.monthlyBudget > 0 && projected > state.monthlyBudget) {
-      anaProjCostEl.style.color = "#ef4444";
-      anaProjCostEl.innerText += ` (Over Budget)`;
-    } else {
-      anaProjCostEl.style.color = "var(--text-color)";
+  anaProjCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
+  anaProjCostEl.style.color = "var(--text-color)";
+  let maxMilk = -1;
+  let maxDate = "";
+  entries2.forEach(([date, val]) => {
+    const t3 = (val.cow || 0) + (val.buffalo || 0);
+    if (t3 > maxMilk) {
+      maxMilk = t3;
+      maxDate = date;
     }
-    let maxMilk = -1;
-    let maxDate = "";
-    let minMilk = 9999;
-    let minDate = "";
-    entries2.forEach(([date, val]) => {
-      const t3 = (val.cow || 0) + (val.buffalo || 0);
-      if (t3 > maxMilk) {
-        maxMilk = t3;
-        maxDate = date;
-      }
-      if (t3 < minMilk) {
-        minMilk = t3;
-        minDate = date;
-      }
-    });
-    if (entries2.length > 0) {
-      peakDaysEl.innerText = `Max: ${maxMilk}L (${new Date(maxDate).getDate()}) | Min: ${minMilk}L (${new Date(minDate).getDate()})`;
-    } else {
-      peakDaysEl.innerText = "No Data";
-    }
-    const prevDate = new Date(year, month - 1, 1);
-    const prevPrefix = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
-    const prevEntries = Object.entries(state.data).filter(([k2, v3]) => k2.startsWith(prevPrefix));
-    let prevTotalCost = 0;
-    prevEntries.forEach(([k2, v3]) => {
-      const cP = v3.cowPrice !== void 0 ? v3.cowPrice : state.cowPrice;
-      const bP = v3.buffaloPrice !== void 0 ? v3.buffaloPrice : state.buffaloPrice;
-      prevTotalCost += (v3.cow || 0) * cP + (v3.buffalo || 0) * bP;
-    });
-    const diff = totalCost - prevTotalCost;
-    if (prevEntries.length === 0) {
-      monthComparisonEl.innerText = "No prev month data";
-    } else {
-      const arrow = diff > 0 ? "\u2191" : "\u2193";
-      monthComparisonEl.innerText = `${arrow} \u20B9${Math.abs(diff).toFixed(0)} vs last month`;
-      monthComparisonEl.style.color = diff > 0 ? "#ef4444" : "var(--success-color)";
-    }
+  });
+  if (entries2.length > 0) {
+    peakDaysEl.innerText = `Max: ${maxMilk}L (${new Date(maxDate).getDate()}/${new Date(maxDate).getMonth() + 1})`;
   } else {
-    anaProjCostEl.innerText = "-";
-    peakDaysEl.innerText = "-";
-    monthComparisonEl.innerText = "-";
+    peakDaysEl.innerText = "No Data";
   }
+  monthComparisonEl.style.display = "none";
   const ctxDist = document.getElementById("chart-distribution").getContext("2d");
   analyticsCharts["distribution"] = new auto_default(ctxDist, {
     type: "doughnut",
@@ -49380,7 +49318,7 @@ function renderAnalytics() {
     }
   });
   const ctxTrend = document.getElementById("chart-trend").getContext("2d");
-  const labels = view === "monthly" ? processedData.map((d2) => d2.day) : processedData.map((d2) => d2.label);
+  const labels = processedData.map((d2) => d2.label);
   const cowData = processedData.map((d2) => d2.cow);
   const buffData = processedData.map((d2) => d2.buffalo);
   analyticsCharts["trend"] = new auto_default(ctxTrend, {
@@ -49418,47 +49356,38 @@ function renderAnalytics() {
     }
   });
   const ctxPrice = document.getElementById("chart-price").getContext("2d");
-  if (view === "monthly") {
-    const pLabels = processedData.map((d2) => d2.day);
-    const pCow = processedData.map((d2) => d2.cowPrice);
-    const pBuff = processedData.map((d2) => d2.buffaloPrice);
-    analyticsCharts["price"] = new auto_default(ctxPrice, {
-      type: "line",
-      data: {
-        labels: pLabels,
-        datasets: [
-          {
-            label: "Cow Price",
-            data: pCow,
-            borderColor: "#4ade80",
-            tension: 0.1,
-            pointRadius: 1
-          },
-          {
-            label: "Buff Price",
-            data: pBuff,
-            borderColor: "#FF9500",
-            tension: 0.1,
-            pointRadius: 1
-          }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-          y: { beginAtZero: false }
-          // Price usually doesn't start at 0
+  const pCow = processedData.map((d2) => d2.cowPrice);
+  const pBuff = processedData.map((d2) => d2.buffaloPrice);
+  analyticsCharts["price"] = new auto_default(ctxPrice, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Cow Price",
+          data: pCow,
+          borderColor: "#4ade80",
+          tension: 0.1,
+          pointRadius: 1
+        },
+        {
+          label: "Buff Price",
+          data: pBuff,
+          borderColor: "#FF9500",
+          tension: 0.1,
+          pointRadius: 1
         }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: false }
+        // Price usually doesn't start at 0
       }
-    });
-  } else {
-    analyticsCharts["price"] = new auto_default(ctxPrice, {
-      type: "line",
-      data: { labels: [], datasets: [] },
-      options: { plugins: { title: { display: true, text: "Select Monthly View for Price Trend" } } }
-    });
-  }
+    }
+  });
 }
 function exportToCSV() {
   const { entries: entries2, label } = getFilteredDataForAnalytics();
@@ -49483,26 +49412,15 @@ function exportToCSV() {
   link.click();
   document.body.removeChild(link);
 }
-function exportToPDF() {
+async function exportToPDF() {
   const { entries: entries2, label } = getFilteredDataForAnalytics();
   if (entries2.length === 0) return alert("No data to export");
   const doc = new E();
   doc.setFontSize(18);
-  doc.text(`Milk Report - ${label}`, 14, 22);
-  doc.setFontSize(11);
-  doc.setTextColor(100);
-  let totalCow = 0, totalBuff = 0, totalCost = 0;
-  entries2.forEach(([k2, v3]) => {
-    const cP = v3.cowPrice !== void 0 ? v3.cowPrice : state.cowPrice;
-    const bP = v3.buffaloPrice !== void 0 ? v3.buffaloPrice : state.buffaloPrice;
-    totalCow += v3.cow || 0;
-    totalBuff += v3.buffalo || 0;
-    totalCost += (v3.cow || 0) * cP + (v3.buffalo || 0) * bP;
-  });
-  doc.text(`Total Cow: ${totalCow.toFixed(1)} L`, 14, 30);
-  doc.text(`Total Buffalo: ${totalBuff.toFixed(1)} L`, 14, 36);
-  doc.text(`Total Cost: Rs. ${totalCost.toFixed(0)}`, 14, 42);
-  let y3 = 55;
+  doc.text(`Milk Report`, 14, 22);
+  doc.setFontSize(12);
+  doc.text(label, 14, 28);
+  let y3 = 40;
   doc.setFontSize(10);
   doc.setTextColor(0);
   doc.text("Date", 14, y3);
@@ -49512,8 +49430,9 @@ function exportToPDF() {
   doc.text("Note", 120, y3);
   doc.line(14, y3 + 2, 200, y3 + 2);
   y3 += 8;
+  let totalCow = 0, totalBuff = 0, totalCost = 0;
   entries2.forEach(([date, val]) => {
-    if (y3 > 280) {
+    if (y3 > 270) {
       doc.addPage();
       y3 = 20;
     }
@@ -49522,17 +49441,54 @@ function exportToPDF() {
     const cP = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
     const bP = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
     const cost = c4 * cP + b2 * bP;
+    totalCow += c4;
+    totalBuff += b2;
+    totalCost += cost;
     doc.text(date, 14, y3);
     doc.text(c4.toString(), 50, y3);
     doc.text(b2.toString(), 70, y3);
     doc.text(cost.toFixed(0), 90, y3);
     if (val.note) {
-      const cleanNote = val.note.length > 20 ? val.note.substring(0, 18) + "..." : val.note;
+      const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + "..." : val.note;
       doc.text(cleanNote, 120, y3);
     }
     y3 += 7;
   });
-  doc.save(`milk_report_${label.replace(/ /g, "_")}.pdf`);
+  if (y3 > 250) {
+    doc.addPage();
+    y3 = 20;
+  } else {
+    y3 += 10;
+  }
+  doc.line(14, y3, 200, y3);
+  y3 += 10;
+  doc.setFontSize(14);
+  doc.text("Summary", 14, y3);
+  y3 += 8;
+  doc.setFontSize(12);
+  doc.text(`Total Cow Milk: ${totalCow.toFixed(1)} L`, 14, y3);
+  y3 += 6;
+  doc.text(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`, 14, y3);
+  y3 += 6;
+  doc.setFontSize(14);
+  doc.setTextColor(255, 0, 0);
+  doc.text(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`, 14, y3);
+  try {
+    const base64Data = doc.output("datauristring").split(",")[1];
+    const fileName = `Milk_Report_${Date.now()}.pdf`;
+    const result = await Filesystem.writeFile({
+      path: fileName,
+      data: base64Data,
+      directory: Directory.Cache
+    });
+    await Share.share({
+      title: "Milk Report PDF",
+      url: result.uri
+    });
+  } catch (e2) {
+    console.error("PDF Export Failed", e2);
+    doc.save(`milk_report.pdf`);
+  }
 }
 init();
 var menuBtn = document.getElementById("menu-btn");
@@ -49561,7 +49517,7 @@ if (checkUpdateBtn) {
 if (shareAppBtn) {
   shareAppBtn.addEventListener("click", async () => {
     const title = "Milk Bahi App";
-    const text2 = "\u{1F95B} Milk Bahi - Track your daily milk expenses with ease! \u{1F4CA}\u2728 Download the latest version here:";
+    const text2 = "\u{1F44B} Hi! I use Milk Bahi to track my daily milk expenses. It's simple and works offline. You can download the app file directly from here:";
     const url = "https://github.com/pavnxet/Milk-Bahi/releases";
     try {
       await Share.share({
