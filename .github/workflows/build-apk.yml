@@ -24,6 +24,10 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Get version from package.json
+        id: pkg_version
+        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -36,27 +40,48 @@ jobs:
           npx capacitor-assets generate --android
           npx cap sync
 
-      - name: Build APK (Debug)
+      - name: Decode Keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release.jks
+
+      - name: Build APK (Release)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           cd android
-          ./gradlew assembleDebug
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$(pwd)/release.jks \
+            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+
+      - name: VirusTotal Scan
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          files: |
+            android/app/build/outputs/apk/release/app-release.apk
 
       - name: Rename APK
-        run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/MilkBahi_v2.0.apk
+        run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/MilkBahi_v${{ env.VERSION }}.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MilkBahi_v2.0.apk
-          path: android/app/build/outputs/apk/debug/MilkBahi_v2.0.apk
+          name: MilkBahi_v${{ env.VERSION }}.apk
+          path: android/app/build/outputs/apk/release/MilkBahi_v${{ env.VERSION }}.apk
 
       - name: Create Release
         if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v2.0.${{ github.run_number }}
-          name: Release v2.0.${{ github.run_number }}
-          files: android/app/build/outputs/apk/debug/MilkBahi_v2.0.apk
+          tag_name: v${{ env.VERSION }}.${{ github.run_number }}
+          name: Release v${{ env.VERSION }}.${{ github.run_number }}
+          files: android/app/build/outputs/apk/release/MilkBahi_v${{ env.VERSION }}.apk
           draft: false
           prerelease: false
           make_latest: true
