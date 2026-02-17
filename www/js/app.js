@@ -48598,6 +48598,26 @@ var REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
 var REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 var DATA_FOLDER = "MilkTracker";
 var DATA_FILE = "data.json";
+function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
+  const cow = val.cow || 0;
+  const buffalo = val.buffalo || 0;
+  const cowPrice = val.cowPrice !== void 0 ? val.cowPrice : defaultCowPrice;
+  const buffaloPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : defaultBuffaloPrice;
+  const cost = cow * cowPrice + buffalo * buffaloPrice;
+  return { cow, buffalo, cowPrice, buffaloPrice, cost };
+}
+function calculateTotals(entries2, defaultCowPrice, defaultBuffaloPrice) {
+  let totalCow = 0;
+  let totalBuff = 0;
+  let totalCost = 0;
+  entries2.forEach(([date, val]) => {
+    const result = calculateEntry(val, defaultCowPrice, defaultBuffaloPrice);
+    totalCow += result.cow;
+    totalBuff += result.buffalo;
+    totalCost += result.cost;
+  });
+  return { totalCow, totalBuff, totalCost };
+}
 var state = {
   data: {},
   // { "YYYY-MM-DD": { cow: float, buffalo: float, cowPrice: float, buffaloPrice: float } }
@@ -48826,17 +48846,7 @@ function getMonthData() {
 }
 function renderSummary() {
   const entries2 = getMonthData();
-  let totalCow = 0;
-  let totalBuff = 0;
-  let totalCost = 0;
-  entries2.forEach(([date, val]) => {
-    totalCow += val.cow || 0;
-    totalBuff += val.buffalo || 0;
-    const cPrice = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    totalCost += (val.cow || 0) * cPrice;
-    totalCost += (val.buffalo || 0) * bPrice;
-  });
+  const { totalCow, totalBuff, totalCost } = calculateTotals(entries2, state.cowPrice, state.buffaloPrice);
   totalCowEl.innerText = `${totalCow}L`;
   totalBuffaloEl.innerText = `${totalBuff}L`;
   totalCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
@@ -49182,17 +49192,7 @@ restoreInput.addEventListener("change", (e2) => {
 });
 whatsappFab.addEventListener("click", () => {
   const entries2 = getMonthData();
-  let totalCow = 0;
-  let totalBuff = 0;
-  let totalCost = 0;
-  entries2.forEach(([date, val]) => {
-    totalCow += val.cow || 0;
-    totalBuff += val.buffalo || 0;
-    const cPrice = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    totalCost += (val.cow || 0) * cPrice;
-    totalCost += (val.buffalo || 0) * bPrice;
-  });
+  const { totalCow, totalBuff, totalCost } = calculateTotals(entries2, state.cowPrice, state.buffaloPrice);
   const [year, month] = dateInput.value.split("-");
   const monthName = new Date(dateInput.value).toLocaleString("default", { month: "long" });
   const text2 = `*Milk Report for ${monthName} ${year}* \u{1F95B}%0A---------------------------%0ACow Milk: ${totalCow.toFixed(1)} L%0ABuffalo Milk: ${totalBuff.toFixed(1)} L%0ATotal Cost: \u20B9${totalCost.toFixed(0)}%0A---------------------------%0AShared from Milk Bahi%0AMade with \u2764\uFE0F by Pavneet`;
@@ -49248,21 +49248,18 @@ function renderAnalytics() {
     const dateKey = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
     const existing = state.data[dateKey];
     if (existing) {
-      const c4 = existing.cow || 0;
-      const b2 = existing.buffalo || 0;
-      const cP = existing.cowPrice !== void 0 ? existing.cowPrice : state.cowPrice;
-      const bP = existing.buffaloPrice !== void 0 ? existing.buffaloPrice : state.buffaloPrice;
-      totalCow += c4;
-      totalBuff += b2;
-      totalCost += c4 * cP + b2 * bP;
+      const result = calculateEntry(existing, state.cowPrice, state.buffaloPrice);
+      totalCow += result.cow;
+      totalBuff += result.buffalo;
+      totalCost += result.cost;
       processedData.push({
         label: `${d2.getDate()}/${d2.getMonth() + 1}`,
         date: dateKey,
-        cow: c4,
-        buffalo: b2,
-        cost: c4 * cP + b2 * bP,
-        cowPrice: cP,
-        buffaloPrice: bP
+        cow: result.cow,
+        buffalo: result.buffalo,
+        cost: result.cost,
+        cowPrice: result.cowPrice,
+        buffaloPrice: result.buffaloPrice
       });
     } else {
       processedData.push({
@@ -49394,13 +49391,9 @@ function exportToCSV() {
   if (entries2.length === 0) return alert("No data to export");
   let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
   entries2.forEach(([date, val]) => {
-    const c4 = val.cow || 0;
-    const b2 = val.buffalo || 0;
-    const cP = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bP = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    const cost = c4 * cP + b2 * bP;
+    const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
     const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
-    csvContent += `${date},${c4},${b2},${cP},${bP},${cost},${note}
+    csvContent += `${date},${result.cow},${result.buffalo},${result.cowPrice},${result.buffaloPrice},${result.cost},${note}
 `;
   });
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -49436,18 +49429,14 @@ async function exportToPDF() {
       doc.addPage();
       y3 = 20;
     }
-    const c4 = val.cow || 0;
-    const b2 = val.buffalo || 0;
-    const cP = val.cowPrice !== void 0 ? val.cowPrice : state.cowPrice;
-    const bP = val.buffaloPrice !== void 0 ? val.buffaloPrice : state.buffaloPrice;
-    const cost = c4 * cP + b2 * bP;
-    totalCow += c4;
-    totalBuff += b2;
-    totalCost += cost;
+    const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
+    totalCow += result.cow;
+    totalBuff += result.buffalo;
+    totalCost += result.cost;
     doc.text(date, 14, y3);
-    doc.text(c4.toString(), 50, y3);
-    doc.text(b2.toString(), 70, y3);
-    doc.text(cost.toFixed(0), 90, y3);
+    doc.text(result.cow.toString(), 50, y3);
+    doc.text(result.buffalo.toString(), 70, y3);
+    doc.text(result.cost.toFixed(0), 90, y3);
     if (val.note) {
       const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + "..." : val.note;
       doc.text(cleanNote, 120, y3);
