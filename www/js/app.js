@@ -49381,6 +49381,11 @@ function renderAnalytics() {
     }
   });
 }
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").then((reg) => console.log("SW Registered!", reg.scope)).catch((err2) => console.log("SW Failed!", err2));
+  });
+}
 function exportToCSV() {
   const { entries: entries2, label } = getFilteredDataForAnalytics();
   if (entries2.length === 0) return alert("No data to export");
