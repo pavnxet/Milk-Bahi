@@ -880,15 +880,10 @@ function renderAnalytics() {
     anaProjCostEl.style.color = 'var(--text-color)'; // Reset color
 
     // Peak Days
-    let maxMilk = -1; let maxDate = '';
+    const peak = calculatePeakDay(entries);
 
-    entries.forEach(([date, val]) => {
-         const t = (val.cow||0) + (val.buffalo||0);
-         if (t > maxMilk) { maxMilk = t; maxDate = date; }
-    });
-
-    if (entries.length > 0) {
-        peakDaysEl.innerText = `Max: ${maxMilk}L (${new Date(maxDate).getDate()}/${new Date(maxDate).getMonth()+1})`;
+    if (peak) {
+        peakDaysEl.innerText = `Max: ${peak.maxMilk}L (${new Date(peak.maxDate).getDate()}/${new Date(peak.maxDate).getMonth()+1})`;
     } else {
         peakDaysEl.innerText = "No Data";
     }
@@ -1126,6 +1121,24 @@ async function exportToPDF() {
 
 // Run Init
 init();
+
+// --- Helper Functions ---
+export function calculatePeakDay(entries) {
+    if (!entries || entries.length === 0) return null;
+
+    let maxMilk = -1;
+    let maxDate = '';
+
+    entries.forEach(([date, val]) => {
+         const t = (val.cow||0) + (val.buffalo||0);
+         if (t > maxMilk) {
+             maxMilk = t;
+             maxDate = date;
+         }
+    });
+
+    return { maxMilk, maxDate };
+}
 
 // --- Sidebar Logic ---
 const menuBtn = document.getElementById('menu-btn');
