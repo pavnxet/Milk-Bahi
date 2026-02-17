@@ -41,8 +41,8 @@
             </div>
 
             <button id="share-app-btn" class="secondary" style="margin-bottom: 10px; background: var(--accent-color); color: white;">Share App</button>
-            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates v2.0</button>
-            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v2.0</p>
+            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates v3.0</button>
+            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v3.0</p>
         </div>
 
         <!-- Main Dashboard -->
@@ -142,11 +142,23 @@
             <div id="tab-analytics" class="tab-content">
                 <header>
                     <h2 style="margin-right: auto;">Analytics</h2>
-                    <select id="analytics-view-selector" style="font-size: 14px; padding: 4px; border-radius: 6px; border: none; background: rgba(0,0,0,0.05);">
-                        <option value="monthly">Monthly</option>
-                        <option value="yearly">Yearly</option>
-                    </select>
                 </header>
+
+                <div class="glass-card" style="padding: 10px;">
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+                            <div style="flex: 1;">
+                                <label style="font-size: 10px; color: var(--secondary-text);">From</label>
+                                <input type="date" id="analytics-start-date" style="font-size: 13px; padding: 6px; width: 100%; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="font-size: 10px; color: var(--secondary-text);">To</label>
+                                <input type="date" id="analytics-end-date" style="font-size: 13px; padding: 6px; width: 100%; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                            </div>
+                        </div>
+                        <button id="analytics-filter-btn" style="padding: 8px; font-size: 13px; width: 100%;">Apply Date Filter</button>
+                    </div>
+                </div>
 
                 <div class="glass-card">
                     <h3>Summary</h3>
@@ -157,11 +169,11 @@
                         </div>
                         <div class="stat-item">
                             <div class="stat-value" id="ana-proj-cost" style="font-size: 16px;">₹0</div>
-                            <div class="stat-label">Proj. Cost</div>
+                            <div class="stat-label">Total Cost</div>
                         </div>
                     </div>
                      <div style="margin-top: 15px; font-size: 12px; color: var(--secondary-text); display: flex; justify-content: space-between;">
-                        <span id="month-comparison">--</span>
+                        <span id="month-comparison" style="display: none;">--</span>
                         <span id="peak-days">--</span>
                     </div>
                 </div>

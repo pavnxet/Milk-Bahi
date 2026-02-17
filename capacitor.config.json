@@ -1,8 +1,7 @@
 {
-  "appId": "com.milktracker.app",
-  "appName": "Milk Tracker",
+  "appId": "com.milkbahi.app",
+  "appName": "Milk Bahi",
   "webDir": "www",
-  "bundledWebRuntime": false,
   "server": {
     "cleartext": true
   }
