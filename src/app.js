@@ -3,6 +3,7 @@ import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
+import { generateCSVContent } from './csvHelper.js';
 
 // --- Constants ---
 const STORAGE_KEY = "milk_tracker_data";
@@ -1007,18 +1008,7 @@ function exportToCSV() {
     const { entries, label } = getFilteredDataForAnalytics();
     if (entries.length === 0) return alert("No data to export");
 
-    let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
-
-    entries.forEach(([date, val]) => {
-         const c = val.cow || 0;
-         const b = val.buffalo || 0;
-         const cP = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
-         const bP = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
-         const cost = (c * cP) + (b * bP);
-         const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
-
-         csvContent += `${date},${c},${b},${cP},${bP},${cost},${note}\n`;
-    });
+    const csvContent = generateCSVContent(entries, state.cowPrice, state.buffaloPrice);
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
