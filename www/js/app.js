@@ -48855,6 +48855,7 @@ function renderSummary() {
 function renderFullHistory() {
   const entries2 = Object.entries(state.data).sort((a3, b2) => b2[0].localeCompare(a3[0]));
   historyListEl.innerHTML = "";
+  const fragment = document.createDocumentFragment();
   entries2.forEach(([date, qty]) => {
     const item = document.createElement("div");
     item.className = "history-item";
@@ -48901,8 +48902,9 @@ function renderFullHistory() {
     rightDiv.appendChild(deleteBtn);
     item.appendChild(dateSpan);
     item.appendChild(rightDiv);
-    historyListEl.appendChild(item);
+    fragment.appendChild(item);
   });
+  historyListEl.appendChild(fragment);
 }
 dateInput.addEventListener("change", () => {
   const date = dateInput.value;

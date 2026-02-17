@@ -333,6 +333,8 @@ function renderFullHistory() {
     const entries = Object.entries(state.data).sort((a, b) => b[0].localeCompare(a[0]));
     historyListEl.innerHTML = '';
 
+    const fragment = document.createDocumentFragment();
+
     entries.forEach(([date, qty]) => {
         const item = document.createElement('div');
         item.className = 'history-item';
@@ -393,8 +395,10 @@ function renderFullHistory() {
         item.appendChild(dateSpan);
         item.appendChild(rightDiv);
 
-        historyListEl.appendChild(item);
+        fragment.appendChild(item);
     });
+
+    historyListEl.appendChild(fragment);
 }
 
 dateInput.addEventListener('change', () => {
