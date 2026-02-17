@@ -803,15 +803,22 @@ exportPdfBtn.addEventListener('click', exportToPDF);
 exportCsvBtn.addEventListener('click', exportToCSV);
 
 
-function getFilteredDataForAnalytics() {
-    const start = new Date(state.analyticsStart);
-    const end = new Date(state.analyticsEnd);
+function filterDataByDateRange(data, startStr, endStr) {
+    const start = new Date(startStr);
+    const end = new Date(endStr);
 
     // Sort chronological
-    const entries = Object.entries(state.data).filter(([dateStr, val]) => {
+    return Object.entries(data).filter(([dateStr, val]) => {
         const d = new Date(dateStr);
         return d >= start && d <= end;
     }).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function getFilteredDataForAnalytics() {
+    const entries = filterDataByDateRange(state.data, state.analyticsStart, state.analyticsEnd);
+
+    const start = new Date(state.analyticsStart);
+    const end = new Date(state.analyticsEnd);
 
     // Friendly Label
     const label = `${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
