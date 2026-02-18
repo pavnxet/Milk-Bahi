@@ -3,6 +3,7 @@ import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
+import { generateCSVContent } from './csvHelper.js';
 
 // --- Constants ---
 const STORAGE_KEY = "milk_tracker_data";
@@ -69,6 +70,9 @@ let state = {
 const dashboard = document.getElementById('dashboard');
 
 const dateInput = document.getElementById('entry-date');
+const prevDayBtn = document.getElementById('prev-day-btn');
+const nextDayBtn = document.getElementById('next-day-btn');
+
 // Controls
 const decCowBtn = document.getElementById('dec-cow');
 const incCowBtn = document.getElementById('inc-cow');
@@ -180,6 +184,34 @@ function showDashboard() {
 }
 
 // --- Filesystem Logic ---
+function checkAndShowCopyYesterday(currentDateStr) {
+    // If current day has data, hide button
+    if (state.data[currentDateStr] && (state.data[currentDateStr].cow > 0 || state.data[currentDateStr].buffalo > 0)) {
+        copyYesterdayBtn.style.display = 'none';
+        return;
+    }
+
+    // Get Yesterday in UTC
+    const d = new Date(currentDateStr);
+    d.setUTCDate(d.getUTCDate() - 1);
+    const yStr = d.toISOString().split('T')[0];
+
+    if (state.data[yStr]) {
+        copyYesterdayBtn.style.display = 'block';
+        copyYesterdayBtn.onclick = () => {
+            const yEntry = state.data[yStr];
+            currentCow = yEntry.cow || 0;
+            currentBuff = yEntry.buffalo || 0;
+            // Don't copy note
+            entryNoteInput.value = '';
+            updateDisplay();
+            copyYesterdayBtn.style.display = 'none';
+        };
+    } else {
+        copyYesterdayBtn.style.display = 'none';
+    }
+}
+
 async function loadData() {
     try {
         // Ensure folder exists first
@@ -224,6 +256,8 @@ async function loadData() {
         if (state.data[today].note) entryNoteInput.value = state.data[today].note;
         updateDisplay();
     }
+
+    checkAndShowCopyYesterday(today);
 
     renderSummary();
     renderFullHistory();
@@ -291,6 +325,7 @@ saveBtn.addEventListener('click', async () => {
     if (note) entry.note = note;
 
     await saveData(date, entry);
+    checkAndShowCopyYesterday(date); // Update button state
     alert("Saved!");
 });
 
@@ -417,34 +452,30 @@ dateInput.addEventListener('change', () => {
         currentCow = entry.cow || 0;
         currentBuff = entry.buffalo || 0;
         entryNoteInput.value = entry.note || '';
-        copyYesterdayBtn.style.display = 'none';
     } else {
         currentCow = 0;
         currentBuff = 0;
         entryNoteInput.value = '';
-
-        // Check yesterday
-        const d = new Date(date);
-        d.setDate(d.getDate() - 1);
-        const yStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-        if (state.data[yStr]) {
-            copyYesterdayBtn.style.display = 'block';
-            copyYesterdayBtn.onclick = () => {
-                const yEntry = state.data[yStr];
-                currentCow = yEntry.cow || 0;
-                currentBuff = yEntry.buffalo || 0;
-                // Don't copy note
-                entryNoteInput.value = '';
-                updateDisplay();
-                copyYesterdayBtn.style.display = 'none';
-            };
-        } else {
-            copyYesterdayBtn.style.display = 'none';
-        }
     }
+
+    checkAndShowCopyYesterday(date);
+
     updateDisplay();
     renderSummary();
+});
+
+prevDayBtn.addEventListener('click', () => {
+    const d = new Date(dateInput.value); // UTC Midnight
+    d.setUTCDate(d.getUTCDate() - 1);
+    dateInput.value = d.toISOString().split('T')[0];
+    dateInput.dispatchEvent(new Event('change'));
+});
+
+nextDayBtn.addEventListener('click', () => {
+    const d = new Date(dateInput.value); // UTC Midnight
+    d.setUTCDate(d.getUTCDate() + 1);
+    dateInput.value = d.toISOString().split('T')[0];
+    dateInput.dispatchEvent(new Event('change'));
 });
 
 // --- Settings Logic ---
@@ -1007,27 +1038,39 @@ if ('serviceWorker' in navigator) {
 }
 
 // --- Export Functions ---
-function exportToCSV() {
+async function exportToCSV() {
     const { entries, label } = getFilteredDataForAnalytics();
     if (entries.length === 0) return alert("No data to export");
 
-    let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
+    const csvContent = generateCSVContent(entries, state.cowPrice, state.buffaloPrice);
 
-    entries.forEach(([date, val]) => {
-         const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
-         const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
+    try {
+        const fileName = `Milk_Report_${label.replace(/ /g, '_')}_${Date.now()}.csv`;
 
-         csvContent += `${date},${result.cow},${result.buffalo},${result.cowPrice},${result.buffaloPrice},${result.cost},${note}\n`;
-    });
+        const result = await Filesystem.writeFile({
+            path: fileName,
+            data: csvContent,
+            directory: Directory.Cache,
+            encoding: Encoding.UTF8
+        });
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `milk_report_${label.replace(/ /g, '_')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        await Share.share({
+            title: 'Milk Report CSV',
+            url: result.uri
+        });
+
+    } catch (e) {
+        console.error("CSV Export Failed", e);
+        // Browser fallback
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `milk_report_${label.replace(/ /g, '_')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
 }
 
 async function exportToPDF() {
@@ -1041,17 +1084,21 @@ async function exportToPDF() {
     doc.setFontSize(12);
     doc.text(label, 14, 28);
 
-    // Headers
-    let y = 40;
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    doc.text("Date", 14, y);
-    doc.text("Cow", 50, y);
-    doc.text("Buff", 70, y);
-    doc.text("Cost", 90, y);
-    doc.text("Note", 120, y);
+    // Headers Helper
+    const printHeader = (yPos) => {
+        doc.setFontSize(10);
+        doc.setTextColor(0);
+        doc.text("Date", 14, yPos);
+        doc.text("Cow", 50, yPos);
+        doc.text("Buff", 70, yPos);
+        doc.text("Cost", 90, yPos);
+        doc.text("Note", 120, yPos);
+        doc.line(14, yPos+2, 200, yPos+2);
+    };
 
-    doc.line(14, y+2, 200, y+2);
+    // Initial Headers
+    let y = 40;
+    printHeader(y);
     y += 8;
 
     let totalCow = 0, totalBuff = 0, totalCost = 0;
@@ -1061,6 +1108,8 @@ async function exportToPDF() {
         if (y > 270) {
             doc.addPage();
             y = 20;
+            printHeader(y);
+            y += 8;
         }
 
          const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);

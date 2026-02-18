@@ -41,8 +41,8 @@
             </div>
 
             <button id="share-app-btn" class="secondary" style="margin-bottom: 10px; background: var(--accent-color); color: white;">Share App</button>
-            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates v3.0</button>
-            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v3.0</p>
+            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates v3.1</button>
+            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v3.1</p>
         </div>
 
         <!-- Main Dashboard -->
@@ -95,7 +95,12 @@
                         <h2>Add Today's Milk</h2>
                         <button id="copy-yesterday-btn" style="display: none; font-size: 10px; padding: 5px 10px; width: auto; background: var(--secondary-text);">Copy Yesterday</button>
                     </div>
-                    <input type="date" id="entry-date" style="margin-bottom: 5px;">
+
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
+                        <button id="prev-day-btn" class="icon-btn" style="background: var(--bg-color); border: 1px solid var(--border-color); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">‹</button>
+                        <input type="date" id="entry-date" style="margin-bottom: 0; flex: 1;">
+                        <button id="next-day-btn" class="icon-btn" style="background: var(--bg-color); border: 1px solid var(--border-color); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">›</button>
+                    </div>
 
                     <!-- Cow Control -->
                     <div class="entry-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 15px;">
