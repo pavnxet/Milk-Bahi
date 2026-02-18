@@ -48587,6 +48587,29 @@ E.API.PDFObject = (function() {
   }, e2;
 })();
 
+// src/csvHelper.js
+function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
+  const cow = val.cow || 0;
+  const buffalo = val.buffalo || 0;
+  const cowPrice = val.cowPrice !== void 0 ? val.cowPrice : defaultCowPrice;
+  const buffaloPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : defaultBuffaloPrice;
+  const cost = cow * cowPrice + buffalo * buffaloPrice;
+  return { cow, buffalo, cowPrice, buffaloPrice, cost };
+}
+function generateCSVContent(entries2, currentCowPrice, currentBuffaloPrice) {
+  let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
+  entries2.forEach(([date, val]) => {
+    const result = calculateEntry(val, currentCowPrice, currentBuffaloPrice);
+    let note = val.note || "";
+    if (note.includes(",") || note.includes("\n") || note.includes('"')) {
+      note = `"${note.replace(/"/g, '""')}"`;
+    }
+    csvContent += `${date},${result.cow},${result.buffalo},${result.cowPrice},${result.buffaloPrice},${result.cost},${note}
+`;
+  });
+  return csvContent;
+}
+
 // src/app.js
 var STORAGE_KEY = "milk_tracker_data";
 var PRICE_COW_KEY = "milk_tracker_price_cow";
@@ -48598,7 +48621,7 @@ var REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
 var REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 var DATA_FOLDER = "MilkTracker";
 var DATA_FILE = "data.json";
-function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
+function calculateEntry2(val, defaultCowPrice, defaultBuffaloPrice) {
   const cow = val.cow || 0;
   const buffalo = val.buffalo || 0;
   const cowPrice = val.cowPrice !== void 0 ? val.cowPrice : defaultCowPrice;
@@ -48611,7 +48634,7 @@ function calculateTotals(entries2, defaultCowPrice, defaultBuffaloPrice) {
   let totalBuff = 0;
   let totalCost = 0;
   entries2.forEach(([date, val]) => {
-    const result = calculateEntry(val, defaultCowPrice, defaultBuffaloPrice);
+    const result = calculateEntry2(val, defaultCowPrice, defaultBuffaloPrice);
     totalCow += result.cow;
     totalBuff += result.buffalo;
     totalCost += result.cost;
@@ -48644,6 +48667,8 @@ var state = {
 };
 var dashboard = document.getElementById("dashboard");
 var dateInput = document.getElementById("entry-date");
+var prevDayBtn = document.getElementById("prev-day-btn");
+var nextDayBtn = document.getElementById("next-day-btn");
 var decCowBtn = document.getElementById("dec-cow");
 var incCowBtn = document.getElementById("inc-cow");
 var qtyCowDisplay = document.getElementById("qty-cow");
@@ -48725,6 +48750,28 @@ function showDashboard() {
   renderSummary();
   renderFullHistory();
 }
+function checkAndShowCopyYesterday(currentDateStr) {
+  if (state.data[currentDateStr] && (state.data[currentDateStr].cow > 0 || state.data[currentDateStr].buffalo > 0)) {
+    copyYesterdayBtn.style.display = "none";
+    return;
+  }
+  const d2 = new Date(currentDateStr);
+  d2.setUTCDate(d2.getUTCDate() - 1);
+  const yStr = d2.toISOString().split("T")[0];
+  if (state.data[yStr]) {
+    copyYesterdayBtn.style.display = "block";
+    copyYesterdayBtn.onclick = () => {
+      const yEntry = state.data[yStr];
+      currentCow = yEntry.cow || 0;
+      currentBuff = yEntry.buffalo || 0;
+      entryNoteInput.value = "";
+      updateDisplay();
+      copyYesterdayBtn.style.display = "none";
+    };
+  } else {
+    copyYesterdayBtn.style.display = "none";
+  }
+}
 async function loadData() {
   try {
     try {
@@ -48761,6 +48808,7 @@ async function loadData() {
     if (state.data[today].note) entryNoteInput.value = state.data[today].note;
     updateDisplay();
   }
+  checkAndShowCopyYesterday(today);
   renderSummary();
   renderFullHistory();
 }
@@ -48826,6 +48874,7 @@ saveBtn.addEventListener("click", async () => {
   const entry = { cow: currentCow, buffalo: currentBuff };
   if (note) entry.note = note;
   await saveData(date, entry);
+  checkAndShowCopyYesterday(date);
   alert("Saved!");
 });
 function renderDate(date) {
@@ -48919,30 +48968,26 @@ dateInput.addEventListener("change", () => {
     currentCow = entry.cow || 0;
     currentBuff = entry.buffalo || 0;
     entryNoteInput.value = entry.note || "";
-    copyYesterdayBtn.style.display = "none";
   } else {
     currentCow = 0;
     currentBuff = 0;
     entryNoteInput.value = "";
-    const d2 = new Date(date);
-    d2.setDate(d2.getDate() - 1);
-    const yStr = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
-    if (state.data[yStr]) {
-      copyYesterdayBtn.style.display = "block";
-      copyYesterdayBtn.onclick = () => {
-        const yEntry = state.data[yStr];
-        currentCow = yEntry.cow || 0;
-        currentBuff = yEntry.buffalo || 0;
-        entryNoteInput.value = "";
-        updateDisplay();
-        copyYesterdayBtn.style.display = "none";
-      };
-    } else {
-      copyYesterdayBtn.style.display = "none";
-    }
   }
+  checkAndShowCopyYesterday(date);
   updateDisplay();
   renderSummary();
+});
+prevDayBtn.addEventListener("click", () => {
+  const d2 = new Date(dateInput.value);
+  d2.setUTCDate(d2.getUTCDate() - 1);
+  dateInput.value = d2.toISOString().split("T")[0];
+  dateInput.dispatchEvent(new Event("change"));
+});
+nextDayBtn.addEventListener("click", () => {
+  const d2 = new Date(dateInput.value);
+  d2.setUTCDate(d2.getUTCDate() + 1);
+  dateInput.value = d2.toISOString().split("T")[0];
+  dateInput.dispatchEvent(new Event("change"));
 });
 settingsBtn.addEventListener("click", () => settingsModal.classList.add("active"));
 closeSettingsBtn.addEventListener("click", () => settingsModal.classList.remove("active"));
@@ -49220,13 +49265,18 @@ analyticsFilterBtn.addEventListener("click", () => {
 });
 exportPdfBtn.addEventListener("click", exportToPDF);
 exportCsvBtn.addEventListener("click", exportToCSV);
-function getFilteredDataForAnalytics() {
-  const start = new Date(state.analyticsStart);
-  const end = new Date(state.analyticsEnd);
-  const entries2 = Object.entries(state.data).filter(([dateStr, val]) => {
+function filterDataByDateRange(data, startStr, endStr) {
+  const start = new Date(startStr);
+  const end = new Date(endStr);
+  return Object.entries(data).filter(([dateStr, val]) => {
     const d2 = new Date(dateStr);
     return d2 >= start && d2 <= end;
   }).sort((a3, b2) => a3[0].localeCompare(b2[0]));
+}
+function getFilteredDataForAnalytics() {
+  const entries2 = filterDataByDateRange(state.data, state.analyticsStart, state.analyticsEnd);
+  const start = new Date(state.analyticsStart);
+  const end = new Date(state.analyticsEnd);
   const label = `${start.toLocaleDateString()} to ${end.toLocaleDateString()}`;
   return { entries: entries2, label };
 }
@@ -49245,7 +49295,7 @@ function renderAnalytics() {
     const dateKey = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
     const existing = state.data[dateKey];
     if (existing) {
-      const result = calculateEntry(existing, state.cowPrice, state.buffaloPrice);
+      const result = calculateEntry2(existing, state.cowPrice, state.buffaloPrice);
       totalCow += result.cow;
       totalBuff += result.buffalo;
       totalCost += result.cost;
@@ -49276,17 +49326,9 @@ function renderAnalytics() {
   anaAvgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
   anaProjCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
   anaProjCostEl.style.color = "var(--text-color)";
-  let maxMilk = -1;
-  let maxDate = "";
-  entries2.forEach(([date, val]) => {
-    const t3 = (val.cow || 0) + (val.buffalo || 0);
-    if (t3 > maxMilk) {
-      maxMilk = t3;
-      maxDate = date;
-    }
-  });
-  if (entries2.length > 0) {
-    peakDaysEl.innerText = `Max: ${maxMilk}L (${new Date(maxDate).getDate()}/${new Date(maxDate).getMonth() + 1})`;
+  const peak = calculatePeakDay(entries2);
+  if (peak) {
+    peakDaysEl.innerText = `Max: ${peak.maxMilk}L (${new Date(peak.maxDate).getDate()}/${new Date(peak.maxDate).getMonth() + 1})`;
   } else {
     peakDaysEl.innerText = "No Data";
   }
@@ -49388,24 +49430,33 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").then((reg) => console.log("SW Registered!", reg.scope)).catch((err2) => console.log("SW Failed!", err2));
   });
 }
-function exportToCSV() {
+async function exportToCSV() {
   const { entries: entries2, label } = getFilteredDataForAnalytics();
   if (entries2.length === 0) return alert("No data to export");
-  let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
-  entries2.forEach(([date, val]) => {
-    const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
-    const note = val.note ? `"${val.note.replace(/"/g, '""')}"` : "";
-    csvContent += `${date},${result.cow},${result.buffalo},${result.cowPrice},${result.buffaloPrice},${result.cost},${note}
-`;
-  });
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.setAttribute("href", url);
-  link.setAttribute("download", `milk_report_${label.replace(/ /g, "_")}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  const csvContent = generateCSVContent(entries2, state.cowPrice, state.buffaloPrice);
+  try {
+    const fileName = `Milk_Report_${label.replace(/ /g, "_")}_${Date.now()}.csv`;
+    const result = await Filesystem.writeFile({
+      path: fileName,
+      data: csvContent,
+      directory: Directory.Cache,
+      encoding: Encoding.UTF8
+    });
+    await Share.share({
+      title: "Milk Report CSV",
+      url: result.uri
+    });
+  } catch (e2) {
+    console.error("CSV Export Failed", e2);
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `milk_report_${label.replace(/ /g, "_")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
 }
 async function exportToPDF() {
   const { entries: entries2, label } = getFilteredDataForAnalytics();
@@ -49415,23 +49466,28 @@ async function exportToPDF() {
   doc.text(`Milk Report`, 14, 22);
   doc.setFontSize(12);
   doc.text(label, 14, 28);
+  const printHeader = (yPos) => {
+    doc.setFontSize(10);
+    doc.setTextColor(0);
+    doc.text("Date", 14, yPos);
+    doc.text("Cow", 50, yPos);
+    doc.text("Buff", 70, yPos);
+    doc.text("Cost", 90, yPos);
+    doc.text("Note", 120, yPos);
+    doc.line(14, yPos + 2, 200, yPos + 2);
+  };
   let y3 = 40;
-  doc.setFontSize(10);
-  doc.setTextColor(0);
-  doc.text("Date", 14, y3);
-  doc.text("Cow", 50, y3);
-  doc.text("Buff", 70, y3);
-  doc.text("Cost", 90, y3);
-  doc.text("Note", 120, y3);
-  doc.line(14, y3 + 2, 200, y3 + 2);
+  printHeader(y3);
   y3 += 8;
   let totalCow = 0, totalBuff = 0, totalCost = 0;
   entries2.forEach(([date, val]) => {
     if (y3 > 270) {
       doc.addPage();
       y3 = 20;
+      printHeader(y3);
+      y3 += 8;
     }
-    const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
+    const result = calculateEntry2(val, state.cowPrice, state.buffaloPrice);
     totalCow += result.cow;
     totalBuff += result.buffalo;
     totalCost += result.cost;
@@ -49482,6 +49538,19 @@ async function exportToPDF() {
   }
 }
 init();
+function calculatePeakDay(entries2) {
+  if (!entries2 || entries2.length === 0) return null;
+  let maxMilk = -1;
+  let maxDate = "";
+  entries2.forEach(([date, val]) => {
+    const t3 = (val.cow || 0) + (val.buffalo || 0);
+    if (t3 > maxMilk) {
+      maxMilk = t3;
+      maxDate = date;
+    }
+  });
+  return { maxMilk, maxDate };
+}
 var menuBtn = document.getElementById("menu-btn");
 var sidebar = document.getElementById("sidebar");
 var sidebarOverlay = document.getElementById("sidebar-overlay");
@@ -49540,6 +49609,9 @@ if (shareAppBtn) {
     }
   });
 }
+export {
+  calculatePeakDay
+};
 /*! Bundled license information:
 
 @capacitor/core/dist/index.js:
