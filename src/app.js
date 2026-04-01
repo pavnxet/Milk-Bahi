@@ -1078,36 +1078,50 @@ async function exportToPDF() {
     if (entries.length === 0) return alert("No data to export");
 
     const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const marginX = 14;
+    const tableWidth = pageWidth - (marginX * 2);
 
+    doc.setFillColor(22, 101, 52);
+    doc.rect(0, 0, pageWidth, 34, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFontSize(18);
-    doc.text(`Milk Report`, 14, 22);
-    doc.setFontSize(12);
-    doc.text(label, 14, 28);
+    doc.text(`Milk Report`, marginX, 15);
+    doc.setFontSize(11);
+    doc.text(label, marginX, 23);
+    doc.setFontSize(10);
+    doc.text(`Generated on: ${new Date().toLocaleDateString()}`, marginX, 30);
+    doc.setTextColor(0, 0, 0);
 
     // Headers Helper
     const printHeader = (yPos) => {
+        doc.setFillColor(238, 248, 243);
+        doc.rect(marginX, yPos - 5, tableWidth, 7, 'F');
         doc.setFontSize(10);
-        doc.setTextColor(0);
-        doc.text("Date", 14, yPos);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(22, 101, 52);
+        doc.text("Date", marginX, yPos);
         doc.text("Cow", 50, yPos);
         doc.text("Buff", 70, yPos);
         doc.text("Cost", 90, yPos);
         doc.text("Note", 120, yPos);
-        doc.line(14, yPos+2, 200, yPos+2);
+        doc.line(marginX, yPos + 2, pageWidth - marginX, yPos + 2);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont(undefined, 'normal');
     };
 
     // Initial Headers
-    let y = 40;
+    let y = 44;
     printHeader(y);
     y += 8;
 
     let totalCow = 0, totalBuff = 0, totalCost = 0;
 
     // Entries
-    entries.forEach(([date, val]) => {
+    entries.forEach(([date, val], index) => {
         if (y > 270) {
             doc.addPage();
-            y = 20;
+            y = 18;
             printHeader(y);
             y += 8;
         }
@@ -1118,10 +1132,15 @@ async function exportToPDF() {
          totalBuff += result.buffalo;
          totalCost += result.cost;
 
-         doc.text(date, 14, y);
+         if (index % 2 === 1) {
+             doc.setFillColor(249, 252, 250);
+             doc.rect(marginX, y - 4.5, tableWidth, 6, 'F');
+         }
+
+         doc.text(date, marginX, y);
          doc.text(result.cow.toString(), 50, y);
          doc.text(result.buffalo.toString(), 70, y);
-         doc.text(result.cost.toFixed(0), 90, y);
+         doc.text(`₹${result.cost.toFixed(0)}`, 90, y);
          if (val.note) {
              const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + '...' : val.note;
              doc.text(cleanNote, 120, y);
@@ -1138,19 +1157,25 @@ async function exportToPDF() {
         y += 10;
     }
 
-    doc.line(14, y, 200, y);
+    doc.line(marginX, y, pageWidth - marginX, y);
     y += 10;
     doc.setFontSize(14);
-    doc.text("Summary", 14, y);
+    doc.setTextColor(22, 101, 52);
+    doc.text("Summary", marginX, y);
     y += 8;
+    doc.setTextColor(0, 0, 0);
     doc.setFontSize(12);
-    doc.text(`Total Cow Milk: ${totalCow.toFixed(1)} L`, 14, y);
+    doc.text(`Total Cow Milk: ${totalCow.toFixed(1)} L`, marginX, y);
     y += 6;
-    doc.text(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`, 14, y);
+    doc.text(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`, marginX, y);
     y += 6;
-    doc.setFontSize(14);
-    doc.setTextColor(255, 0, 0); // Red for cost
-    doc.text(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`, 14, y);
+    doc.setFillColor(255, 243, 224);
+    doc.roundedRect(marginX, y - 5, tableWidth, 10, 2, 2, 'F');
+    doc.setFontSize(13);
+    doc.setTextColor(168, 50, 0);
+    doc.setFont(undefined, 'bold');
+    doc.text(`Total Cost for ${label}: ₹${totalCost.toFixed(0)}`, marginX + 2, y + 1.5);
+    doc.setFont(undefined, 'normal');
 
     // --- Output & Share ---
     try {
