@@ -39,7 +39,8 @@ jobs:
 
       - name: Inject API Secret
         env:
-          SYNC_API_SECRET: ${{ secrets.SYNC_API_SECRET }}
+          SYNC_API_SECRET: ${{ secrets.API_KEYS }}
+
         run: |
           sed -i "s/YOUR_API_SECRET_HERE/$SYNC_API_SECRET/g" src/app.js
 
