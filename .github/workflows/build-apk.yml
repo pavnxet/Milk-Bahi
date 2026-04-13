@@ -47,11 +47,15 @@ jobs:
           sed -i "s/YOUR_API_SECRET_HERE/$SYNC_API_SECRET/g" src/app.js
 
 
+      - name: Build Web Assets
+        run: npm run build
+
       - name: Initialize Android Platform
         run: |
           npx cap add android
           npx capacitor-assets generate --android
           npx cap sync
+
 
       - name: Decode Keystore
         env:
