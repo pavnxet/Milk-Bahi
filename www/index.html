@@ -291,6 +291,39 @@
                 <button class="secondary" id="restore-btn">Restore</button>
                 <input type="file" id="restore-input" style="display: none;" accept=".json">
             </div>
+
+            <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 20px 0;">
+
+            <h3>👨‍👩‍👧 Family Sync</h3>
+            <p style="font-size: 12px; color: var(--secondary-text); margin-bottom: 15px;">
+                Sync your milk data across multiple devices.
+            </p>
+
+            <!-- Create Sync (for primary user) -->
+            <div id="sync-create-section" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Turso Database URL</label>
+                <input type="text" id="sync-turso-url" placeholder="libsql://your-db.turso.io" autocomplete="off" style="margin-bottom: 15px;">
+                
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Turso Auth Token</label>
+                <input type="password" id="sync-turso-token" placeholder="Paste your token here" autocomplete="off" style="margin-bottom: 15px;">
+                
+                <button id="generate-sync-code-btn" style="margin-bottom: 10px;">Generate Sharing Code</button>
+                
+                <div id="sync-code-display" style="margin-top: 15px; padding: 15px; background: var(--bg-color); border-radius: 12px; text-align: center; display: none;">
+                    <p style="margin: 0 0 5px; font-size: 12px; color: var(--secondary-text);">Your sharing code:</p>
+                    <span style="font-size: 28px; font-weight: 700; letter-spacing: 6px; color: var(--accent-color);" id="sync-code-value"></span>
+                    <p style="margin: 10px 0 0; font-size: 11px; color: var(--secondary-text);">Share this code with family. Expires in 7 days.</p>
+                </div>
+            </div>
+
+            <!-- Join Sync (for family members) -->
+            <div id="sync-join-section">
+                <label style="display: block; margin-bottom: 5px; font-weight: 500;">Enter Sharing Code</label>
+                <input type="text" id="sync-join-code" placeholder="e.g., A1B2C3" maxlength="6" style="text-transform: uppercase; margin-bottom: 15px;">
+                <button id="join-sync-btn">Join Family Sync</button>
+            </div>
+
+            <div id="sync-status" style="margin-top: 15px; font-size: 13px; font-weight: 500; text-align: center;"></div>
         </div>
     </div>
 

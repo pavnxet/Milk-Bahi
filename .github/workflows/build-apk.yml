@@ -34,6 +34,13 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      - name: Inject API Secret
+        env:
+          SYNC_API_SECRET: ${{ secrets.SYNC_API_SECRET }}
+        run: |
+          sed -i "s/YOUR_API_SECRET_HERE/$SYNC_API_SECRET/g" src/app.js
+
+
       - name: Initialize Android Platform
         run: |
           npx cap add android

@@ -322,3 +322,14 @@
         [data-theme="dark"] .sidebar {
             background: #2c2c2e;
         }
+
+        /* Family Sync Code Display */
+        #sync-code-display {
+            background: var(--card-bg) !important;
+            border: 1px solid var(--border-color);
+        }
+
+        #sync-code-value {
+            font-family: 'SF Mono', 'Menlo', 'Monaco', 'Cascadia Code', monospace;
+        }
+

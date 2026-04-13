@@ -1,6 +1,8 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { Preferences } from '@capacitor/preferences';
+import { Libsql } from '@capawesome/capacitor-libsql';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
 import { generateCSVContent } from './csvHelper.js';
@@ -16,6 +18,10 @@ const REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
 const REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 const DATA_FOLDER = "MilkTracker";
 const DATA_FILE = "data.json";
+
+// --- Sync Constants ---
+const SYNC_WORKER_URL = "https://milk-bahi.pavneet1804.workers.dev";
+const API_SECRET = "YOUR_API_SECRET_HERE"; // To be replaced by GitHub Actions during build
 
 // --- Helper Functions ---
 function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
@@ -65,6 +71,110 @@ let state = {
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     })()
 };
+
+// --- Database Logic ---
+const DB_PATH = 'milk_bahi_v2.db';
+let localConnectionId = null;
+let remoteConnectionId = null;
+
+async function connectToLocalDB() {
+    try {
+        const result = await Libsql.connect({ path: DB_PATH });
+        localConnectionId = result.connectionId;
+        console.log('Connected to local DB:', localConnectionId);
+
+        // Create the table if it doesn't exist
+        await Libsql.execute({
+            connectionId: localConnectionId,
+            statement: `
+                CREATE TABLE IF NOT EXISTS milk_entries (
+                    date TEXT PRIMARY KEY,
+                    cow REAL DEFAULT 0,
+                    buffalo REAL DEFAULT 0,
+                    cow_price REAL DEFAULT 0,
+                    buffalo_price REAL DEFAULT 0,
+                    note TEXT,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            `
+        });
+        
+        // Check for migration from JSON
+        await migrateDataFromFilesystem();
+    } catch (err) {
+        console.error('Failed to connect to local DB:', err);
+    }
+}
+
+async function migrateDataFromFilesystem() {
+    try {
+        // Only migrate if we haven't already
+        const { value: isMigrated } = await Preferences.get({ key: 'data_migrated_v2' });
+        if (isMigrated === 'true') return;
+
+        console.log('Starting migration from Filesystem to SQLite...');
+
+        // Try to read existing data
+        let oldData = {};
+        try {
+            const result = await Filesystem.readFile({
+                path: `${DATA_FOLDER}/${DATA_FILE}`,
+                directory: Directory.Documents,
+                encoding: Encoding.UTF8,
+            });
+            oldData = JSON.parse(result.data);
+        } catch (e) {
+            // No old data found or fallback to localStorage
+            const localData = localStorage.getItem(STORAGE_KEY);
+            if (localData) {
+                oldData = JSON.parse(localData);
+            } else {
+                // Nothing to migrate
+                await Preferences.set({ key: 'data_migrated_v2', value: 'true' });
+                return;
+            }
+        }
+
+        // Insert old data into SQLite
+        for (const [date, val] of Object.entries(oldData)) {
+            let cow = 0, buffalo = 0, cowPrice = state.cowPrice, buffaloPrice = state.buffaloPrice, note = '';
+            
+            if (typeof val === 'number') {
+                cow = val;
+            } else if (typeof val === 'object') {
+                cow = val.cow || 0;
+                buffalo = val.buffalo || 0;
+                cowPrice = val.cowPrice !== undefined ? val.cowPrice : state.cowPrice;
+                buffaloPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : state.buffaloPrice;
+                note = val.note || '';
+            }
+
+            await Libsql.execute({
+                connectionId: localConnectionId,
+                statement: `
+                    INSERT OR REPLACE INTO milk_entries (date, cow, buffalo, cow_price, buffalo_price, note)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `,
+                values: [date, cow, buffalo, cowPrice, buffaloPrice, note]
+            });
+        }
+
+        console.log('Migration completed successfully.');
+        await Preferences.set({ key: 'data_migrated_v2', value: 'true' });
+        
+        // Optionally back up the old file by renaming it
+        try {
+            await Filesystem.rename({
+                from: `${DATA_FOLDER}/${DATA_FILE}`,
+                to: `${DATA_FOLDER}/${DATA_FILE}.bak`,
+                directory: Directory.Documents
+            });
+        } catch (e) { /* ignore */ }
+        
+    } catch (err) {
+        console.error('Migration failed:', err);
+    }
+}
 
 // --- UI Elements ---
 const dashboard = document.getElementById('dashboard');
@@ -170,6 +280,12 @@ async function init() {
     analyticsStartDateInput.value = state.analyticsStart;
     analyticsEndDateInput.value = state.analyticsEnd;
 
+    // Connect to Database
+    await connectToLocalDB();
+    
+    // Check sync credentials
+    await checkSyncStatus();
+
     // Init Dashboard directly
     showDashboard();
     await loadData();
@@ -213,39 +329,29 @@ function checkAndShowCopyYesterday(currentDateStr) {
 }
 
 async function loadData() {
+    if (!localConnectionId) return;
+
     try {
-        // Ensure folder exists first
-        try {
-            await Filesystem.mkdir({
-                path: DATA_FOLDER,
-                directory: Directory.Documents,
-                recursive: true
-            });
-        } catch (e) {
-            // Ignore if exists
-        }
-
-        const result = await Filesystem.readFile({
-            path: `${DATA_FOLDER}/${DATA_FILE}`,
-            directory: Directory.Documents,
-            encoding: Encoding.UTF8,
+        const result = await Libsql.execute({
+            connectionId: localConnectionId,
+            statement: "SELECT * FROM milk_entries ORDER BY date DESC"
         });
-        state.data = JSON.parse(result.data);
-    } catch (e) {
-        console.log("FS Load failed, trying LS", e);
-        // Fallback
-        const localData = localStorage.getItem(STORAGE_KEY);
-        if (localData) {
-            state.data = JSON.parse(localData);
-            saveDataToDisk();
-        }
-    }
 
-    // Migration Logic: Convert old number format to object format
-    for (const [date, val] of Object.entries(state.data)) {
-        if (typeof val === 'number') {
-            state.data[date] = { cow: val, buffalo: 0 };
-        }
+        // Clear and rebuild state.data cache
+        state.data = {};
+        result.rows.forEach(row => {
+            state.data[row.date] = {
+                cow: row.cow,
+                buffalo: row.buffalo,
+                cow_price: row.cow_price,
+                buffalo_price: row.buffalo_price,
+                note: row.note
+            };
+        });
+        
+        console.log(`Loaded ${result.rows.length} entries from SQLite.`);
+    } catch (err) {
+        console.error("SQLite Load failed", err);
     }
 
     // Load today's data if exists
@@ -263,43 +369,233 @@ async function loadData() {
     renderFullHistory();
 }
 
+// Redundant with SQLite but kept for compatibility during refactor
 async function saveDataToDisk() {
-    try {
-        await Filesystem.writeFile({
-            path: `${DATA_FOLDER}/${DATA_FILE}`,
-            data: JSON.stringify(state.data),
-            directory: Directory.Documents,
-            encoding: Encoding.UTF8,
-        });
-    } catch (e) {
-        console.error("FS Save failed", e);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
-    }
+    console.log("Data is now managed by SQLite.");
 }
 
 async function saveData(date, qty) {
-    // Save current prices with the entry to maintain history
+    if (!localConnectionId) return;
+
     const entry = {
         ...qty,
         cowPrice: state.cowPrice,
-        buffaloPrice: state.buffaloPrice
+        buffaloPrice: state.buffaloPrice,
+        note: qty.note || ''
     };
-    state.data[date] = entry;
-    await saveDataToDisk();
-    renderSummary();
-    renderFullHistory();
+
+    try {
+        await Libsql.execute({
+            connectionId: localConnectionId,
+            statement: `
+                INSERT OR REPLACE INTO milk_entries (date, cow, buffalo, cow_price, buffalo_price, note, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `,
+            values: [date, entry.cow, entry.buffalo, entry.cowPrice, entry.buffaloPrice, entry.note]
+        });
+
+        // Update cache
+        state.data[date] = entry;
+
+        // Perform background sync if configured
+        syncWithRemote().catch(console.error);
+        
+        renderSummary();
+        renderFullHistory();
+    } catch (err) {
+        console.error("SQLite save failed", err);
+        alert("Failed to save data to database.");
+    }
+}
+
+async function saveAllDataToSqlite(allData) {
+    if (!localConnectionId) return;
+    try {
+        // Clear existing data first for clean restore
+        await Libsql.execute({ connectionId: localConnectionId, statement: "DELETE FROM milk_entries" });
+
+        for (const [date, entry] of Object.entries(allData)) {
+            await Libsql.execute({
+                connectionId: localConnectionId,
+                statement: `
+                    INSERT INTO milk_entries (date, cow, buffalo, cow_price, buffalo_price, note, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                `,
+                values: [
+                    date, 
+                    entry.cow || 0, 
+                    entry.buffalo || 0, 
+                    entry.cowPrice !== undefined ? entry.cowPrice : state.cowPrice, 
+                    entry.buffaloPrice !== undefined ? entry.buffaloPrice : state.buffaloPrice, 
+                    entry.note || ''
+                ]
+            });
+        }
+        console.log("All data persisted to SQLite.");
+    } catch (err) {
+        console.error("Batch SQLite save failed", err);
+    }
 }
 
 async function deleteEntry(date) {
+    if (!localConnectionId) return;
+
     if (confirm(`Delete entry for ${date}?`)) {
-        delete state.data[date];
-        await saveDataToDisk();
-        renderSummary();
-        renderFullHistory();
+        try {
+            await Libsql.execute({
+                connectionId: localConnectionId,
+                statement: "DELETE FROM milk_entries WHERE date = ?",
+                values: [date]
+            });
+
+            delete state.data[date];
+            
+            // Sync deletion
+            syncWithRemote().catch(console.error);
+
+            renderSummary();
+            renderFullHistory();
+        } catch (err) {
+            console.error("SQLite delete failed", err);
+        }
+    }
+}
+
+// --- Family Sync Logic ---
+
+async function checkSyncStatus() {
+    const { value: tursoUrl } = await Preferences.get({ key: 'turso_url' });
+    const statusEl = document.getElementById('sync-status');
+    const createSection = document.getElementById('sync-create-section');
+    const joinSection = document.getElementById('sync-join-section');
+    
+    if (tursoUrl) {
+        statusEl.innerHTML = '<span style="color: var(--success-color);">✅ Sync is active with family database.</span>';
+        if (createSection) createSection.style.display = 'none';
+        if (joinSection) joinSection.style.display = 'none';
+        
+        // Initialize remote sync if not already connected
+        if (!remoteConnectionId) {
+            const { value: tursoToken } = await Preferences.get({ key: 'turso_token' });
+            await initializeRemoteSync(tursoUrl, tursoToken);
+        }
+    } else {
+        statusEl.innerHTML = '<span style="color: var(--secondary-text);">⚡ Not connected to family sync.</span>';
+        if (createSection) createSection.style.display = 'block';
+        if (joinSection) joinSection.style.display = 'block';
+    }
+}
+
+// Generate sharing code (primary user)
+async function generateSyncCode(tursoUrl, tursoToken) {
+    if (!tursoUrl || !tursoToken) {
+        alert('Please enter both URL and token');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${SYNC_WORKER_URL}/api/create`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': API_SECRET
+            },
+            body: JSON.stringify({ tursoUrl, tursoToken })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || 'Failed to generate code');
+        }
+
+        const { code } = await response.json();
+        document.getElementById('sync-code-value').textContent = code;
+        document.getElementById('sync-code-display').style.display = 'block';
+
+        // Save credentials for this device as well
+        await Preferences.set({ key: 'turso_url', value: tursoUrl });
+        await Preferences.set({ key: 'turso_token', value: tursoToken });
+        
+        // Initialize remote sync immediately
+        await initializeRemoteSync(tursoUrl, tursoToken);
+        
+        alert('✅ Sharing code generated and saved!');
+        checkSyncStatus();
+    } catch (err) {
+        console.error('Error generating sync code:', err);
+        alert('Error: ' + err.message);
+    }
+}
+
+// Join sync group (family member)
+async function joinSyncGroup(code) {
+    if (!code || code.length !== 6) {
+        alert('Please enter a valid 6-character code');
+        return;
+    }
+
+    try {
+        const response = await fetch(`${SYNC_WORKER_URL}/api/resolve`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: code.toUpperCase() })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || 'Invalid or expired code');
+        }
+
+        const { tursoUrl, tursoToken } = await response.json();
+
+        // Save credentials securely
+        await Preferences.set({ key: 'turso_url', value: tursoUrl });
+        await Preferences.set({ key: 'turso_token', value: tursoToken });
+
+        // Initialize remote sync
+        await initializeRemoteSync(tursoUrl, tursoToken);
+
+        alert('✅ Successfully joined family sync!');
+        checkSyncStatus();
+        
+        // Load data from remote
+        await loadData();
+    } catch (err) {
+        console.error('Error joining sync group:', err);
+        alert('Failed to join: ' + err.message);
+    }
+}
+
+async function initializeRemoteSync(url, token) {
+    if (!url || !token) return;
+    
+    try {
+        const result = await Libsql.connect({
+            url: url,
+            authToken: token
+        });
+        remoteConnectionId = result.connectionId;
+        console.log('Connected to remote Turso DB');
+        
+        // Perform initial sync
+        await syncWithRemote();
+    } catch (err) {
+        console.error('Remote sync connection failed:', err);
+    }
+}
+
+async function syncWithRemote() {
+    if (!remoteConnectionId) return;
+    try {
+        await Libsql.sync({ connectionId: remoteConnectionId });
+        console.log('Sync completed with remote DB');
+    } catch (err) {
+        console.error('Sync failed:', err);
     }
 }
 
 // --- UI Logic ---
+
 let currentCow = 0.0;
 let currentBuff = 0.0;
 
@@ -479,8 +775,24 @@ nextDayBtn.addEventListener('click', () => {
 });
 
 // --- Settings Logic ---
-settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
+settingsBtn.addEventListener('click', () => {
+    settingsModal.classList.add('active');
+    checkSyncStatus(); // Refresh sync status when settings opens
+});
+
 closeSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
+
+// Family Sync Listeners
+document.getElementById('generate-sync-code-btn')?.addEventListener('click', () => {
+    const url = document.getElementById('sync-turso-url').value.trim();
+    const token = document.getElementById('sync-turso-token').value.trim();
+    generateSyncCode(url, token);
+});
+
+document.getElementById('join-sync-btn')?.addEventListener('click', () => {
+    const code = document.getElementById('sync-join-code').value.trim();
+    joinSyncGroup(code);
+});
 
 priceCowInput.addEventListener('change', (e) => {
     state.cowPrice = parseFloat(e.target.value);
@@ -756,7 +1068,11 @@ restoreInput.addEventListener('change', (e) => {
                 }
 
                 state.data = newData;
-                await saveDataToDisk();
+                await saveAllDataToSqlite(newData);
+                
+                // Sync with remote if active
+                syncWithRemote().catch(console.error);
+
                 alert("Data and settings restored successfully!");
                 renderSummary();
                 renderFullHistory();

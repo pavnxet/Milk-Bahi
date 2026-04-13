@@ -1,2 +1,9 @@
 node_modules/
 .DS_Store
+.wrangler/
+New_features_full_guide.txt
+dist/
+platforms/
+plugins/
+www/js/app.js
+.env
