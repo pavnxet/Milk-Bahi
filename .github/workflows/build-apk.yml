@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - milk-tracker-apk
+      - Comeback
 
 jobs:
   build:
@@ -22,7 +22,8 @@ jobs:
           node-version: '18'
 
       - name: Install Dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install --force
+
 
 
       - name: Get version from package.json
