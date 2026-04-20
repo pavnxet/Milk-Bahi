@@ -6,7 +6,7 @@
  * @param {number} defaultBuffaloPrice
  * @returns {Object} Calculated values
  */
-function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
+export function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
     const cow = val.cow || 0;
     const buffalo = val.buffalo || 0;
     const cowPrice = val.cowPrice !== undefined ? val.cowPrice : defaultCowPrice;
