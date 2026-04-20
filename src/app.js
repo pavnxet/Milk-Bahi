@@ -4,8 +4,8 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { Preferences } from '@capacitor/preferences';
 import { Libsql } from '@capawesome/capacitor-libsql';
 import Chart from 'chart.js/auto';
-import { jsPDF } from 'jspdf';
 import { generateCSVContent, calculateEntry } from './csvHelper.js';
+import { generatePDFReport, downloadAsText } from './pdfHelper.js';
 
 // --- Constants ---
 const STORAGE_KEY = "milk_tracker_data";
