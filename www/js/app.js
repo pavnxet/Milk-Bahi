@@ -48709,6 +48709,8 @@ var exportCsvBtn = document.getElementById("export-csv-btn");
 var backupBtn = document.getElementById("backup-btn");
 var restoreBtn = document.getElementById("restore-btn");
 var restoreInput = document.getElementById("restore-input");
+var currentCow = 0;
+var currentBuff = 0;
 async function init() {
   const savedCowPrice = localStorage.getItem(PRICE_COW_KEY);
   if (savedCowPrice) state.cowPrice = parseFloat(savedCowPrice);
@@ -48844,8 +48846,6 @@ async function deleteEntry(date) {
     renderFullHistory();
   }
 }
-var currentCow = 0;
-var currentBuff = 0;
 function updateDisplay() {
   qtyCowDisplay.innerText = currentCow.toFixed(1);
   qtyBuffDisplay.innerText = currentBuff.toFixed(1);
@@ -49625,10 +49625,10 @@ html2canvas/dist/html2canvas.js:
    *)
   (*! *****************************************************************************
       Copyright (c) Microsoft Corporation.
-
+  
       Permission to use, copy, modify, and/or distribute this software for any
       purpose with or without fee is hereby granted.
-
+  
       THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
       REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
       AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
@@ -49644,10 +49644,10 @@ dompurify/dist/purify.es.mjs:
 svg-pathdata/lib/SVGPathData.module.js:
   (*! *****************************************************************************
   Copyright (c) Microsoft Corporation.
-
+  
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted.
-
+  
   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
   REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
   AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
@@ -49765,26 +49765,26 @@ jspdf/dist/jspdf.es.min.js:
    * @license
     Copyright (c) 2008, Adobe Systems Incorporated
     All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
+  
+    Redistribution and use in source and binary forms, with or without 
     modification, are permitted provided that the following conditions are
     met:
-
-    * Redistributions of source code must retain the above copyright notice,
+  
+    * Redistributions of source code must retain the above copyright notice, 
       this list of conditions and the following disclaimer.
-
+    
     * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
+      notice, this list of conditions and the following disclaimer in the 
       documentation and/or other materials provided with the distribution.
-
-    * Neither the name of Adobe Systems Incorporated nor the names of its
-      contributors may be used to endorse or promote products derived from
+    
+    * Neither the name of Adobe Systems Incorporated nor the names of its 
+      contributors may be used to endorse or promote products derived from 
       this software without specific prior written permission.
-
+  
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
     IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
     THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-    PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+    PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR 
     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
     EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
     PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR

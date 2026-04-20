@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Milk Bahi</string>
+    <string name="title_activity_main">Milk Bahi</string>
+    <string name="package_name">com.milkbahi.app</string>
+    <string name="custom_url_scheme">com.milkbahi.app</string>
+</resources>
