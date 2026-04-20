@@ -3,6 +3,12 @@
   "appName": "Milk Bahi",
   "webDir": "www",
   "server": {
-    "cleartext": false
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
   }
 }

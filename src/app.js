@@ -124,6 +124,10 @@ const backupBtn = document.getElementById('backup-btn');
 const restoreBtn = document.getElementById('restore-btn');
 const restoreInput = document.getElementById('restore-input');
 
+// --- State Variables for UI ---
+let currentCow = 0.0;
+let currentBuff = 0.0;
+
 // --- Initialization ---
 async function init() {
     // Load local settings
@@ -300,8 +304,6 @@ async function deleteEntry(date) {
 }
 
 // --- UI Logic ---
-let currentCow = 0.0;
-let currentBuff = 0.0;
 
 function updateDisplay() {
     qtyCowDisplay.innerText = currentCow.toFixed(1);
