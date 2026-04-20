@@ -4,7 +4,8 @@
   "description": "Daily milk tracking app for Mom.",
   "scripts": {
     "start": "npx cap serve",
-    "build": "esbuild src/app.js --bundle --outfile=www/js/app.js --format=esm && npx cap sync",
+    "build": "esbuild src/app.js --bundle --minify --outfile=www/js/app.js --format=esm && npx cap sync",
+    "build:debug": "esbuild src/app.js --bundle --outfile=www/js/app.js --format=esm && npx cap sync",
     "android": "npx cap open android",
     "generate-assets": "npx capacitor-assets generate --android"
   },

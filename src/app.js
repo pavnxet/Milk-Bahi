@@ -4,8 +4,8 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { Preferences } from '@capacitor/preferences';
 import { Libsql } from '@capawesome/capacitor-libsql';
 import Chart from 'chart.js/auto';
-import { jsPDF } from 'jspdf';
-import { generateCSVContent } from './csvHelper.js';
+import { generateCSVContent, calculateEntry } from './csvHelper.js';
+import { generatePDFReport, downloadAsText } from './pdfHelper.js';
 
 // --- Constants ---
 const STORAGE_KEY = "milk_tracker_data";
@@ -21,17 +21,11 @@ const DATA_FILE = "data.json";
 
 // --- Sync Constants ---
 const SYNC_WORKER_URL = "https://milk-bahi.pavneet1804.workers.dev";
-const API_SECRET = "YOUR_API_SECRET_HERE"; // To be replaced by GitHub Actions during build
+// API_SECRET should be loaded from secure native storage or removed if not using sync
+// For security, sync feature requires proper backend authentication setup
+const API_SECRET = null; // Disabled by default - enable only with proper backend auth
 
 // --- Helper Functions ---
-function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
-    const cow = val.cow || 0;
-    const buffalo = val.buffalo || 0;
-    const cowPrice = val.cowPrice !== undefined ? val.cowPrice : defaultCowPrice;
-    const buffaloPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : defaultBuffaloPrice;
-    const cost = (cow * cowPrice) + (buffalo * buffaloPrice);
-    return { cow, buffalo, cowPrice, buffaloPrice, cost };
-}
 
 function calculateTotals(entries, defaultCowPrice, defaultBuffaloPrice) {
     let totalCow = 0;
@@ -234,6 +228,16 @@ const backupBtn = document.getElementById('backup-btn');
 const restoreBtn = document.getElementById('restore-btn');
 const restoreInput = document.getElementById('restore-input');
 
+// --- UI Logic ---
+
+let currentCow = 0.0;
+let currentBuff = 0.0;
+
+function updateDisplay() {
+    qtyCowDisplay.innerText = currentCow.toFixed(1);
+    qtyBuffDisplay.innerText = currentBuff.toFixed(1);
+}
+
 // --- Initialization ---
 async function init() {
     // Load local settings
@@ -298,6 +302,8 @@ function showDashboard() {
     renderSummary();
     renderFullHistory();
 }
+
+// Note: UI Logic variables (currentCow, currentBuff, updateDisplay) are already declared above at line 233-238
 
 // --- Filesystem Logic ---
 function checkAndShowCopyYesterday(currentDateStr) {
@@ -470,6 +476,7 @@ async function checkSyncStatus() {
     const joinSection = document.getElementById('sync-join-section');
     
     if (tursoUrl) {
+        // Safe innerHTML usage - static content only, no user data
         statusEl.innerHTML = '<span style="color: var(--success-color);">✅ Sync is active with family database.</span>';
         if (createSection) createSection.style.display = 'none';
         if (joinSection) joinSection.style.display = 'none';
@@ -480,6 +487,7 @@ async function checkSyncStatus() {
             await initializeRemoteSync(tursoUrl, tursoToken);
         }
     } else {
+        // Safe innerHTML usage - static content only, no user data
         statusEl.innerHTML = '<span style="color: var(--secondary-text);">⚡ Not connected to family sync.</span>';
         if (createSection) createSection.style.display = 'block';
         if (joinSection) joinSection.style.display = 'block';
@@ -490,6 +498,12 @@ async function checkSyncStatus() {
 async function generateSyncCode(tursoUrl, tursoToken) {
     if (!tursoUrl || !tursoToken) {
         alert('Please enter both URL and token');
+        return;
+    }
+
+    // Security check: API_SECRET must be configured for sync to work
+    if (!API_SECRET) {
+        alert('⚠️ Sync feature is disabled for security reasons. To enable it, you need to configure API_SECRET in the app source code with your backend secret key.');
         return;
     }
 
@@ -592,16 +606,6 @@ async function syncWithRemote() {
     } catch (err) {
         console.error('Sync failed:', err);
     }
-}
-
-// --- UI Logic ---
-
-let currentCow = 0.0;
-let currentBuff = 0.0;
-
-function updateDisplay() {
-    qtyCowDisplay.innerText = currentCow.toFixed(1);
-    qtyBuffDisplay.innerText = currentBuff.toFixed(1);
 }
 
 decCowBtn.addEventListener('click', () => { if (currentCow > 0) currentCow -= 0.5; updateDisplay(); });
@@ -710,14 +714,14 @@ function renderFullHistory() {
 
         if (qty.note) {
             const noteSpan = document.createElement('span');
-            noteSpan.innerText = qty.note;
+            noteSpan.textContent = qty.note; // Use textContent instead of innerText for better security
             noteSpan.style.fontSize = '10px';
             noteSpan.style.color = 'var(--secondary-text)';
             detailsDiv.appendChild(noteSpan);
         }
 
         const deleteBtn = document.createElement('button');
-        deleteBtn.innerHTML = '🗑️';
+        deleteBtn.textContent = '🗑️'; // Use textContent instead of innerHTML for security
         deleteBtn.className = 'icon-btn';
         deleteBtn.style.padding = '4px';
         deleteBtn.style.fontSize = '16px';
@@ -1491,9 +1495,6 @@ async function exportToPDF() {
     }
 }
 
-// Run Init
-init();
-
 // --- Helper Functions ---
 export function calculatePeakDay(entries) {
     if (!entries || entries.length === 0) return null;
@@ -1580,3 +1581,6 @@ if (shareAppBtn) {
         }
     });
 }
+
+// Run Init
+init();
