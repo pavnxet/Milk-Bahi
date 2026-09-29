@@ -98,17 +98,24 @@ jobs:
           echo "APK sha256: $sha"
           malicious=""
           for i in $(seq 1 12); do
-            resp="$(curl -s --max-time 30 -H "x-apikey: $VT_API_KEY" \
+            # NOTE: strip all whitespace first — the API pretty-prints
+            # ("malicious": 0 with a space), which a naive grep misses.
+            code="$(curl -s --max-time 30 -o /tmp/vt_resp.json -w '%{http_code}' \
+              -H "x-apikey: $VT_API_KEY" \
               "https://www.virustotal.com/api/v3/files/$sha" || true)"
-            malicious="$(echo "$resp" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
+            compact="$(tr -d '[:space:]' < /tmp/vt_resp.json 2>/dev/null || true)"
+            malicious="$(echo "$compact" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
             if [ -n "$malicious" ]; then
               break
             fi
-            echo "Attempt $i/12: verdict not ready, waiting 30s..."
+            echo "Attempt $i/12: http=$code, verdict not ready, waiting 30s..."
             sleep 30
           done
           if [ -z "$malicious" ]; then
             echo "::warning::Could not determine verdict for $sha, skipping."
+            echo "Last response (first 300 chars):"
+            head -c 300 /tmp/vt_resp.json 2>/dev/null || true
+            echo ""
             exit 0
           fi
           echo "malicious=$malicious for $sha"
