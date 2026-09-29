@@ -46,6 +46,33 @@ To restore data later:
 1. Tap **Restore**.
 2. Select the backup file from your phone.
 
+## Google Drive backup setup
+
+The app can back up to Google Drive (Settings → Google Drive → Sign in →
+Backup) and restore the newest Drive backup. This needs a Google Cloud OAuth
+client — the app ships with a placeholder until you add yours:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com) and
+   create (or select) a project.
+2. **APIs & Services → Library**: enable the **Google Drive API**.
+3. **APIs & Services → OAuth consent screen**: choose **External**, fill in
+   the app name + support email, and add yourself under **Test users**.
+4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**
+   → type **Web application**. (No redirect URI is needed for the native
+   sign-in flow.)
+5. Copy the **Client ID** (it ends with `.apps.googleusercontent.com`) and
+   paste it as `GOOGLE_WEB_CLIENT_ID` in `src/driveBackup.js`.
+6. Run `npm run build` to rebuild the app.
+
+Notes:
+- Scope is `drive.file` (app-created files only) — the web client ID alone is
+  enough for this sign-in → upload → download flow; no Android client / SHA-1
+  fingerprint is required unless Google changes the policy.
+- Backups are named `milk-tracker-backup-YYYY-MM-DD.json`; restore always
+  picks the newest one.
+- Honest status: the code path is **not tested end-to-end** here — it needs
+  your Cloud project + a real device sign-in to verify.
+
 ## Technical Details
 
 - **Stack**: HTML, CSS, JavaScript (Vanilla).

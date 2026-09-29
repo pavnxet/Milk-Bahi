@@ -5,15 +5,17 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
 import { generateCSVContent } from './csvHelper.js';
-import { calculateEntry, parseLocalDate, sanitizeFilename, sanitizeData, isShareDismissed, todayKey, isFutureKey, shouldPromptStar, shouldNotifyRelease } from './utils.js';
+import { APP_VERSION } from './version.js';
+import { driveSignIn, driveUpload, driveFindNewest, driveDownload } from './driveBackup.js';
+import { calculateEntry, parseLocalDate, sanitizeFilename, sanitizeData, isShareDismissed, todayKey, isFutureKey, shouldPromptStar, shouldNotifyRelease, groupEntriesByMonth, monthLabel, formatDDMMYYYY, formatTime12h } from './utils.js';
 
 // --- Constants ---
-const APP_VERSION = "3.3.0";
 const REPO_URL = "https://github.com/pavnxet/Milk-Bahi";
 const RELEASES_URL = "https://github.com/pavnxet/Milk-Bahi/releases";
 const RELEASES_API = "https://api.github.com/repos/pavnxet/Milk-Bahi/releases/latest";
 const STAR_COUNT_KEY = "milk_tracker_star_prompt_count";
 const NOTIFIED_VERSION_KEY = "milk_tracker_notified_version";
+const NOTIF_ASKED_KEY = "milk_tracker_notif_asked";
 
 // --- Storage & settings ---
 const STORAGE_KEY = "milk_tracker_data";
@@ -186,6 +188,15 @@ async function init() {
         } catch (e) {
             console.error("Failed to re-schedule reminder on init", e);
         }
+    }
+    // Ask-once notification permission: only on first launch, delayed so
+    // the dashboard settles first. Never nags again either way.
+    try {
+        if (!localStorage.getItem(NOTIF_ASKED_KEY)) {
+            setTimeout(() => openNotifsModal(), 1200);
+        }
+    } catch (_) {
+        // Storage unavailable: skip the prompt silently.
     }
     // Fire-and-forget: ping only when a release carries your [notify] marker.
     checkForReleaseNotification();
@@ -374,7 +385,8 @@ async function saveData(date, qty) {
     const entry = {
         ...qty,
         cowPrice: state.cowPrice,
-        buffaloPrice: state.buffaloPrice
+        buffaloPrice: state.buffaloPrice,
+        savedAt: Date.now()
     };
     state.data[date] = entry;
     await saveDataToDisk();
@@ -751,25 +763,31 @@ reminderTimeInput.addEventListener('change', async (e) => {
 });
 
 // --- Backup & Restore Logic ---
+// Single construction site for the backup payload: the local Backup handler,
+// the Drive backup handler, and any future exporter all share this shape.
+function buildBackupObject() {
+    return {
+        version: 1,
+        timestamp: Date.now(),
+        settings: {
+            cowPrice: state.cowPrice,
+            buffaloPrice: state.buffaloPrice,
+            monthlyTarget: state.monthlyTarget,
+            monthlyBudget: state.monthlyBudget,
+            isDark: state.isDark,
+            reminderEnabled: state.reminderEnabled,
+            reminderTime: state.reminderTime
+        },
+        data: state.data
+    };
+}
+
 backupBtn.addEventListener('click', async () => {
     const d = new Date();
     const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey}.json`);
     try {
-        const backupObject = {
-            version: 1,
-            timestamp: Date.now(),
-            settings: {
-                cowPrice: state.cowPrice,
-                buffaloPrice: state.buffaloPrice,
-                monthlyTarget: state.monthlyTarget,
-                monthlyBudget: state.monthlyBudget,
-                isDark: state.isDark,
-                reminderEnabled: state.reminderEnabled,
-                reminderTime: state.reminderTime
-            },
-            data: state.data
-        };
+        const backupObject = buildBackupObject();
 
         const dataStr = JSON.stringify(backupObject, null, 2);
 
@@ -800,20 +818,7 @@ backupBtn.addEventListener('click', async () => {
         if (isShareDismissed(e)) return; // User cancelled the share sheet: stay silent.
         console.error("Backup failed", e);
         // Fallback to browser download if Share fails (e.g. desktop)
-        const backupObject = {
-            version: 1,
-            timestamp: Date.now(),
-            settings: {
-                cowPrice: state.cowPrice,
-                buffaloPrice: state.buffaloPrice,
-                monthlyTarget: state.monthlyTarget,
-                monthlyBudget: state.monthlyBudget,
-                isDark: state.isDark,
-                reminderEnabled: state.reminderEnabled,
-                reminderTime: state.reminderTime
-            },
-            data: state.data
-        };
+        const backupObject = buildBackupObject();
         const dataStr = JSON.stringify(backupObject, null, 2);
         const blob = new Blob([dataStr], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -831,6 +836,99 @@ restoreBtn.addEventListener('click', () => {
     restoreInput.click();
 });
 
+// Shared import path: validates + confirms + applies a parsed backup object.
+// Used by BOTH the file-restore handler and the Drive restore handler so the
+// sanitize/confirm behavior can never drift. Throws on invalid data (callers
+// alert); returns 'cancelled' when the user declines a confirm.
+async function importBackupObject(imported) {
+    if (!imported || typeof imported !== 'object' || Array.isArray(imported)) throw new Error("Invalid JSON");
+
+    // Explicit format detect: presence of 'data' or 'settings' means
+    // new-format backup. Never fall through to legacy parsing for it.
+    const isNewFormat = ('data' in imported) || ('settings' in imported);
+    let newData = {};
+    if (isNewFormat) {
+        if (!imported.data || typeof imported.data !== 'object' || Array.isArray(imported.data)) {
+            throw new Error("Invalid Data format");
+        }
+        newData = sanitizeData(imported.data);
+    } else {
+        // Legacy Format: imported is just the data object itself.
+        // sanitizeData converts legacy numbers and keeps note/prices.
+        newData = sanitizeData(imported);
+    }
+
+    const incomingCount = Object.keys(newData).length;
+    const currentCount = Object.keys(state.data).length;
+    const backupDate = imported.timestamp ? new Date(imported.timestamp).toLocaleString() : 'unknown date';
+
+    if (incomingCount === 0 && currentCount > 0) {
+        // Refuse to wipe non-empty data without a second explicit confirm.
+        const wipe = confirm(`Backup from ${backupDate} has 0 valid entries (you currently have ${currentCount}). Restoring would ERASE all current data. Really wipe and restore?`);
+        if (!wipe) return 'cancelled';
+    }
+
+    if (!confirm(`Restore backup from ${backupDate}? It has ${incomingCount} entries (you currently have ${currentCount}). This will overwrite your current local data. Are you sure?`)) {
+        return 'cancelled';
+    }
+
+    if (isNewFormat) {
+        // Restore Settings with Validation
+        if (typeof imported.settings?.cowPrice === 'number') {
+            state.cowPrice = imported.settings.cowPrice;
+            localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+            priceCowInput.value = state.cowPrice;
+        }
+        if (typeof imported.settings?.buffaloPrice === 'number') {
+            state.buffaloPrice = imported.settings.buffaloPrice;
+            localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
+            priceBuffaloInput.value = state.buffaloPrice;
+        }
+        if (typeof imported.settings?.monthlyTarget === 'number') {
+            state.monthlyTarget = imported.settings.monthlyTarget;
+            localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
+            monthlyTargetInput.value = state.monthlyTarget;
+        }
+        if (typeof imported.settings?.monthlyBudget === 'number') {
+            state.monthlyBudget = imported.settings.monthlyBudget;
+            localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
+            monthlyBudgetInput.value = state.monthlyBudget;
+        }
+
+        // Restore Theme
+        if (typeof imported.settings?.isDark === 'boolean') {
+            state.isDark = imported.settings.isDark;
+            document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
+            localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
+            themeToggle.checked = state.isDark;
+        }
+
+        // Restore Reminder
+        if (typeof imported.settings?.reminderEnabled === 'boolean') {
+             state.reminderEnabled = imported.settings.reminderEnabled;
+             localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+             reminderToggle.checked = state.reminderEnabled;
+             reminderTimeInput.style.display = state.reminderEnabled ? 'block' : 'none';
+        }
+        if (typeof imported.settings?.reminderTime === 'string') {
+             state.reminderTime = imported.settings.reminderTime;
+             localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+             reminderTimeInput.value = state.reminderTime;
+        }
+        // Re-schedule notification if needed
+        if (state.reminderEnabled) await scheduleNotification();
+        else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+    }
+
+    state.data = newData;
+    await saveDataToDisk();
+    alert("Data and settings restored successfully!");
+    loadEditorForDate(dateInput.value);
+    renderSummary();
+    renderFullHistory();
+    return 'restored';
+}
+
 restoreInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -839,92 +937,7 @@ restoreInput.addEventListener('change', (e) => {
     reader.onload = async (event) => {
         try {
             const imported = JSON.parse(event.target.result);
-            if (!imported || typeof imported !== 'object' || Array.isArray(imported)) throw new Error("Invalid JSON");
-
-            // Explicit format detect: presence of 'data' or 'settings' means
-            // new-format backup. Never fall through to legacy parsing for it.
-            const isNewFormat = ('data' in imported) || ('settings' in imported);
-            let newData = {};
-            if (isNewFormat) {
-                if (!imported.data || typeof imported.data !== 'object' || Array.isArray(imported.data)) {
-                    throw new Error("Invalid Data format");
-                }
-                newData = sanitizeData(imported.data);
-            } else {
-                // Legacy Format: imported is just the data object itself.
-                // sanitizeData converts legacy numbers and keeps note/prices.
-                newData = sanitizeData(imported);
-            }
-
-            const incomingCount = Object.keys(newData).length;
-            const currentCount = Object.keys(state.data).length;
-            const backupDate = imported.timestamp ? new Date(imported.timestamp).toLocaleString() : 'unknown date';
-
-            if (incomingCount === 0 && currentCount > 0) {
-                // Refuse to wipe non-empty data without a second explicit confirm.
-                const wipe = confirm(`Backup from ${backupDate} has 0 valid entries (you currently have ${currentCount}). Restoring would ERASE all current data. Really wipe and restore?`);
-                if (!wipe) { restoreInput.value = ''; return; }
-            }
-
-            if (!confirm(`Restore backup from ${backupDate}? It has ${incomingCount} entries (you currently have ${currentCount}). This will overwrite your current local data. Are you sure?`)) {
-                restoreInput.value = '';
-                return;
-            }
-
-            if (isNewFormat) {
-                // Restore Settings with Validation
-                if (typeof imported.settings?.cowPrice === 'number') {
-                    state.cowPrice = imported.settings.cowPrice;
-                    localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
-                    priceCowInput.value = state.cowPrice;
-                }
-                if (typeof imported.settings?.buffaloPrice === 'number') {
-                    state.buffaloPrice = imported.settings.buffaloPrice;
-                    localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
-                    priceBuffaloInput.value = state.buffaloPrice;
-                }
-                if (typeof imported.settings?.monthlyTarget === 'number') {
-                    state.monthlyTarget = imported.settings.monthlyTarget;
-                    localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
-                    monthlyTargetInput.value = state.monthlyTarget;
-                }
-                if (typeof imported.settings?.monthlyBudget === 'number') {
-                    state.monthlyBudget = imported.settings.monthlyBudget;
-                    localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
-                    monthlyBudgetInput.value = state.monthlyBudget;
-                }
-
-                // Restore Theme
-                if (typeof imported.settings?.isDark === 'boolean') {
-                    state.isDark = imported.settings.isDark;
-                    document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
-                    localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
-                    themeToggle.checked = state.isDark;
-                }
-
-                // Restore Reminder
-                if (typeof imported.settings?.reminderEnabled === 'boolean') {
-                     state.reminderEnabled = imported.settings.reminderEnabled;
-                     localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
-                     reminderToggle.checked = state.reminderEnabled;
-                     reminderTimeInput.style.display = state.reminderEnabled ? 'block' : 'none';
-                }
-                if (typeof imported.settings?.reminderTime === 'string') {
-                     state.reminderTime = imported.settings.reminderTime;
-                     localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
-                     reminderTimeInput.value = state.reminderTime;
-                }
-                // Re-schedule notification if needed
-                if (state.reminderEnabled) await scheduleNotification();
-                else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
-            }
-
-            state.data = newData;
-            await saveDataToDisk();
-            alert("Data and settings restored successfully!");
-            loadEditorForDate(dateInput.value);
-            renderSummary();
-            renderFullHistory();
+            await importBackupObject(imported);
         } catch (err) {
             alert("Error reading file. Is it a valid backup?");
             console.error(err);
@@ -984,6 +997,11 @@ navItems.forEach(item => {
         // Trigger renders
         if (targetId === 'tab-analytics') renderAnalytics();
         if (targetId === 'tab-history' && historyDirty) renderFullHistory();
+
+        // The WhatsApp pill now lives at #app root (outside the animated
+        // tab), so toggle home-only visibility explicitly.
+        const fab = document.getElementById('whatsapp-fab');
+        if (fab) fab.style.display = (targetId === 'tab-home') ? '' : 'none';
     });
 });
 
@@ -1273,98 +1291,205 @@ async function exportToPDF() {
     // use "Rs." consistently (the ₹ glyph is not in the base-14 fonts).
     const pdfSafeText = (s) => String(s ?? '').replace(/₹/g, 'Rs.').replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ');
 
-    doc.setFontSize(18);
-    doc.text(pdfSafeText(`Milk Report`), 14, 22);
-    doc.setFontSize(12);
-    doc.text(pdfSafeText(label), 14, 28);
+    // --- Layout: A4 210mm, 14mm margins -> 182mm usable ---
+    const MARGIN = 14;
+    const USABLE = 182;
+    const RIGHT = MARGIN + USABLE;
+    const BREAK_Y = 270; // content stays above this; footer lives at 287
+    const FOOTER_Y = 287;
+    const BLUE = [0, 122, 255];
+    const DARK = [33, 33, 33];
+    const GRAY = [120, 120, 120];
+    const WHITE = [255, 255, 255];
+    const BOX_FILL = [245, 245, 245];
+    const TOTAL_FILL = [238, 238, 238];
+    const GRID = [200, 200, 200];
+    const ROW_H = 7;
 
-    // Headers Helper
-    const printHeader = (yPos) => {
-        doc.setFontSize(10);
-        doc.setTextColor(0);
-        doc.text("Date", 14, yPos);
-        doc.text("Cow", 50, yPos);
-        doc.text("Buff", 70, yPos);
-        doc.text("Cost", 90, yPos);
-        doc.text("Note", 120, yPos);
-        doc.line(14, yPos+2, 200, yPos+2);
+    // Column widths (Date 26 / Time 20 / Cow 18 / Buff 18 / Milk 20 /
+    // Rate 30 / Amount 30) scaled proportionally to fill the 182mm width.
+    const COLS = [29, 22, 20, 20, 22, 34, 35];
+    const colX = (i) => MARGIN + COLS.slice(0, i).reduce((a, w) => a + w, 0);
+
+    // --- Range badge: selected analytics range vs the full data span ---
+    let badge = 'Custom Range';
+    const allKeys = Object.keys(state.data).sort();
+    if (allKeys.length > 0) {
+        const first = allKeys[0];
+        const last = allKeys[allKeys.length - 1];
+        if (state.analyticsStart <= first && state.analyticsEnd >= last) {
+            badge = 'All Time Report';
+        } else {
+            const sm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(state.analyticsStart || '');
+            const em = /^(\d{4})-(\d{2})-(\d{2})$/.exec(state.analyticsEnd || '');
+            if (sm && em && sm[1] === em[1] && sm[2] === em[2] && sm[3] === '01') {
+                const lastDay = new Date(Number(em[1]), Number(em[2]), 0).getDate();
+                if (Number(em[3]) === lastDay) badge = monthLabel(`${sm[1]}-${sm[2]}`);
+            }
+        }
+    }
+
+    // --- Header: logo box + app name, report title, range badge ---
+    doc.setFillColor(...BLUE);
+    doc.rect(MARGIN, 10, 12, 12, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...WHITE);
+    doc.text(pdfSafeText('MB'), MARGIN + 2.4, 17.8);
+    doc.setTextColor(...DARK);
+    doc.setFontSize(16);
+    doc.text(pdfSafeText('Milk Bahi'), MARGIN + 15, 17.5);
+    doc.setFontSize(14);
+    doc.text(pdfSafeText('Milk Report'), MARGIN + 15, 25);
+    doc.setFontSize(11);
+    const badgeW = doc.getTextWidth(pdfSafeText(badge)) + 8;
+    doc.setFillColor(...BOX_FILL);
+    doc.setDrawColor(...GRID);
+    doc.rect(RIGHT - badgeW, 11.5, badgeW, 9, 'FD');
+    doc.text(pdfSafeText(badge), RIGHT - badgeW + 4, 18);
+    doc.line(MARGIN, 28, RIGHT, 28);
+
+    // --- Stat boxes: one row of 4 ---
+    const { totalCow, totalBuff, totalCost } = calculateTotals(entries, state.cowPrice, state.buffaloPrice);
+    const stats = [
+        { label: 'Total Milk (L)', value: (totalCow + totalBuff).toFixed(1) },
+        { label: 'Total Amount (Rs)', value: `Rs. ${totalCost.toFixed(0)}` },
+        { label: 'Cow Milk (L)', value: totalCow.toFixed(1) },
+        { label: 'Buffalo Milk (L)', value: totalBuff.toFixed(1) },
+    ];
+    const BOX_W = 44;
+    const BOX_H = 18;
+    const GAP = (USABLE - BOX_W * 4) / 3;
+    let y = 34;
+    if (y + BOX_H > BREAK_Y) { doc.addPage(); y = 20; }
+    stats.forEach((s, i) => {
+        const bx = MARGIN + i * (BOX_W + GAP);
+        doc.setFillColor(...BOX_FILL);
+        doc.setDrawColor(...GRID);
+        doc.rect(bx, y, BOX_W, BOX_H, 'FD');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(...GRAY);
+        doc.text(pdfSafeText(s.label), bx + 3, y + 6);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(...DARK);
+        doc.text(pdfSafeText(s.value), bx + 3, y + 13.5);
+    });
+    y += BOX_H + 8;
+
+    // --- Per-month groups with tables ---
+    const printMonthHeader = (yy) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(...BLUE);
+        doc.text(pdfSafeText(group.label), MARGIN, yy);
+        doc.setTextColor(...DARK);
+        return yy + 7;
+    };
+    const printTableHeader = (yy) => {
+        doc.setFillColor(...BLUE);
+        doc.rect(MARGIN, yy - 5, USABLE, ROW_H, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(...WHITE);
+        ['Date', 'Time', 'Cow', 'Buff', 'Milk (L)', 'Rate', 'Amount'].forEach((h, i) => {
+            doc.text(pdfSafeText(h), colX(i) + 2, yy);
+        });
+        doc.setTextColor(...DARK);
+        return yy + ROW_H;
     };
 
-    // Initial Headers
-    let y = 40;
-    printHeader(y);
-    y += 8;
-
-    let totalCow = 0, totalBuff = 0, totalCost = 0;
-
-    // Entries
-    entries.forEach(([date, val]) => {
-        if (y > 270) {
+    for (const group of groupEntriesByMonth(entries)) {
+        if (y + 16 > BREAK_Y) { doc.addPage(); y = 20; }
+        y = printMonthHeader(y);
+        y = printTableHeader(y);
+        let monthMilk = 0;
+        let monthCost = 0;
+        for (const [date, val] of group.rows) {
+            if (y + ROW_H > BREAK_Y) {
+                doc.addPage();
+                y = 20;
+                y = printMonthHeader(y);
+                y = printTableHeader(y);
+            }
+            const entry = (val && typeof val === 'object' && !Array.isArray(val)) ? val : {};
+            const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
+            const milk = result.cow + result.buffalo;
+            monthMilk += milk;
+            monthCost += result.cost;
+            const cells = [
+                formatDDMMYYYY(date),
+                formatTime12h(entry.savedAt),
+                result.cow.toFixed(1),
+                result.buffalo.toFixed(1),
+                `${milk.toFixed(1)} L`,
+                `${result.cowPrice} + ${result.buffaloPrice}`,
+                result.cost.toFixed(0),
+            ];
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(9);
+            doc.setTextColor(...DARK);
+            doc.setDrawColor(...GRID);
+            cells.forEach((c, i) => {
+                doc.rect(colX(i), y - 5, COLS[i], ROW_H);
+                doc.text(pdfSafeText(c), colX(i) + 2, y);
+            });
+            y += ROW_H;
+            // Rows with a note get one extra wrapped line under the row.
+            if (entry.note) {
+                const lines = doc.splitTextToSize(pdfSafeText(entry.note), USABLE - 4);
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(8);
+                doc.setTextColor(...GRAY);
+                for (const line of lines) {
+                    if (y + 5 > BREAK_Y) {
+                        doc.addPage();
+                        y = 20;
+                        y = printMonthHeader(y);
+                        y = printTableHeader(y);
+                    }
+                    doc.text(line, MARGIN + 2, y);
+                    y += 5;
+                }
+                doc.setTextColor(...DARK);
+            }
+        }
+        if (y + ROW_H > BREAK_Y) {
             doc.addPage();
             y = 20;
-            printHeader(y);
-            y += 8;
+            y = printMonthHeader(y);
+            y = printTableHeader(y);
         }
-
-         const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
-
-         totalCow += result.cow;
-         totalBuff += result.buffalo;
-         totalCost += result.cost;
-
-         doc.text(pdfSafeText(date), 14, y);
-         doc.text(pdfSafeText(result.cow.toString()), 50, y);
-         doc.text(pdfSafeText(result.buffalo.toString()), 70, y);
-         doc.text(pdfSafeText(result.cost.toFixed(0)), 90, y);
-         if (val.note) {
-             // Wrap long notes; each wrapped line can trigger a page break.
-             const lines = doc.splitTextToSize(pdfSafeText(val.note), 80);
-             for (const line of lines) {
-                 if (y > 270) {
-                     doc.addPage();
-                     y = 20;
-                     printHeader(y);
-                     y += 8;
-                 }
-                 doc.text(line, 120, y);
-                 y += 7;
-             }
-         } else {
-             y += 7;
-         }
-    });
-
-    // Summary Section at the End
-    if (y > 250) {
-        doc.addPage();
-        y = 20;
-    } else {
-        y += 10;
+        doc.setFillColor(...TOTAL_FILL);
+        doc.setDrawColor(...GRID);
+        doc.rect(MARGIN, y - 5, USABLE, ROW_H, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.setTextColor(...DARK);
+        doc.text(pdfSafeText('Monthly Total:'), colX(0) + 2, y);
+        doc.text(pdfSafeText(`${monthMilk.toFixed(1)} L`), colX(4) + 2, y);
+        doc.text(pdfSafeText(monthCost.toFixed(0)), colX(6) + 2, y);
+        y += ROW_H + 6;
     }
 
-    doc.line(14, y, 200, y);
-    y += 10;
-    doc.setFontSize(14);
-    doc.text("Summary", 14, y);
-    y += 8;
-    doc.setFontSize(12);
-    doc.text(pdfSafeText(`Total Cow Milk: ${totalCow.toFixed(1)} L`), 14, y);
-    y += 6;
-    doc.text(pdfSafeText(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`), 14, y);
-    y += 6;
-    doc.setFontSize(14);
-    doc.setTextColor(255, 0, 0); // Red for cost
-    doc.text(pdfSafeText(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`), 14, y);
-    y += 8;
-    if (y > 260) {
-        doc.addPage();
-        y = 20;
+    // --- Footer on every page ---
+    const now = new Date();
+    const stamp = `${formatDDMMYYYY(todayKey(now))} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const pageCount = doc.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setDrawColor(...GRID);
+        doc.line(MARGIN, FOOTER_Y - 4, RIGHT, FOOTER_Y - 4);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(...GRAY);
+        doc.text(pdfSafeText(`Generated on ${stamp}`), MARGIN, FOOTER_Y);
+        doc.setTextColor(...BLUE);
+        const brand = pdfSafeText('Milk Bahi');
+        doc.textWithLink(brand, RIGHT - doc.getTextWidth(brand), FOOTER_Y, { url: RELEASES_URL });
+        doc.setTextColor(...DARK);
     }
-    doc.setFontSize(11);
-    doc.setTextColor(0, 0, 255);
-    doc.textWithLink("Get the Milk Bahi app:", 14, y, { url: RELEASES_URL });
-    y += 6;
-    doc.textWithLink(RELEASES_URL, 14, y, { url: RELEASES_URL });
 
     // --- Output & Share ---
     try {
@@ -1542,6 +1667,8 @@ document.addEventListener('keydown', (e) => {
         closeStarModal();
     } else if (settingsModal.classList.contains('active')) {
         closeSettings();
+    } else if (typeof notifModal !== 'undefined' && notifModal && notifModal.classList.contains('active')) {
+        closeNotifsModal();
     } else if (sidebar && sidebar.classList.contains('active')) {
         closeSidebar();
     }
@@ -1619,4 +1746,129 @@ if (openRepoBtn) {
 }
 if (starBtn) {
     starBtn.addEventListener('click', () => openStarModal());
+}
+
+// --- Ask-once notification permission modal (first launch only) ---
+// Mirrors the star-modal pattern: focus-in on open, focus-restore on close,
+// overlay-click + backdrop-click + Escape to dismiss. Allow requests the
+// OS permission; Later dismisses. Both set the asked flag — never nag.
+const notifModal = document.getElementById('notif-modal');
+const notifOverlay = document.getElementById('notif-overlay');
+const notifDialog = notifModal ? notifModal.querySelector('.modal-content') : null;
+const closeNotifBtn = document.getElementById('close-notif');
+const notifAllowBtn = document.getElementById('notif-allow');
+const notifLaterBtn = document.getElementById('notif-later');
+let lastNotifFocus = null;
+
+function openNotifsModal() {
+    if (!notifModal) return;
+    lastNotifFocus = document.activeElement;
+    notifModal.classList.add('active');
+    if (notifOverlay) notifOverlay.classList.add('active');
+    if (notifDialog && typeof notifDialog.focus === 'function') notifDialog.focus();
+}
+
+function closeNotifsModal() {
+    if (!notifModal) return;
+    notifModal.classList.remove('active');
+    if (notifOverlay) notifOverlay.classList.remove('active');
+    const target = lastNotifFocus && document.contains(lastNotifFocus) ? lastNotifFocus : null;
+    if (target && typeof target.focus === 'function') target.focus();
+    lastNotifFocus = null;
+}
+
+function markNotifAsked() {
+    try {
+        localStorage.setItem(NOTIF_ASKED_KEY, 'true');
+    } catch (_) {
+        // Storage unavailable: nothing to persist.
+    }
+}
+
+if (notifAllowBtn) {
+    notifAllowBtn.addEventListener('click', async () => {
+        markNotifAsked();
+        try {
+            await LocalNotifications.requestPermissions();
+        } catch (_) {
+            // Stay silent on failure — the reminder toggle works independently.
+        }
+        closeNotifsModal();
+    });
+}
+
+function dismissNotifsModal() {
+    markNotifAsked();
+    closeNotifsModal();
+}
+
+if (notifLaterBtn) notifLaterBtn.addEventListener('click', dismissNotifsModal);
+if (closeNotifBtn) closeNotifBtn.addEventListener('click', dismissNotifsModal);
+if (notifOverlay) notifOverlay.addEventListener('click', dismissNotifsModal);
+if (notifModal) {
+    notifModal.addEventListener('click', (e) => {
+        if (e.target === notifModal) dismissNotifsModal();
+    });
+}
+
+// --- Google Drive backup (settings section) ---
+// Sign-in token lives only in memory; Drive REST goes through src/driveBackup.js.
+const driveStatusEl = document.getElementById('drive-status');
+const driveSigninBtn = document.getElementById('drive-signin-btn');
+const driveBackupBtn = document.getElementById('drive-backup-btn');
+const driveRestoreBtn = document.getElementById('drive-restore-btn');
+let driveToken = null;
+
+function setDriveStatus(text) {
+    if (driveStatusEl) driveStatusEl.textContent = text;
+}
+
+if (driveSigninBtn) {
+    driveSigninBtn.addEventListener('click', async () => {
+        try {
+            const { accessToken, email } = await driveSignIn();
+            driveToken = accessToken;
+            setDriveStatus(email ? `Signed in as ${email}` : 'Signed in');
+        } catch (e) {
+            if (e instanceof Error && isShareDismissed(e)) return; // user dismissed: stay silent
+            alert(e instanceof Error ? e.message : 'Google sign-in failed. Please try again.');
+        }
+    });
+}
+
+if (driveBackupBtn) {
+    driveBackupBtn.addEventListener('click', async () => {
+        if (!driveToken) return alert('Please sign in to Google Drive first.');
+        const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey()}.json`);
+        try {
+            await driveUpload(fileName, JSON.stringify(buildBackupObject(), null, 2), driveToken);
+            alert(`Backup uploaded to Google Drive as ${fileName}.`);
+        } catch (e) {
+            alert(e instanceof Error ? e.message : 'Drive backup failed. Please try again.');
+        }
+    });
+}
+
+if (driveRestoreBtn) {
+    driveRestoreBtn.addEventListener('click', async () => {
+        if (!driveToken) return alert('Please sign in to Google Drive first.');
+        try {
+            const newest = await driveFindNewest(driveToken);
+            if (!newest) return alert('No Drive backups found.');
+            let imported;
+            try {
+                imported = JSON.parse(await driveDownload(newest.id, driveToken));
+            } catch (_) {
+                return alert('Downloaded backup is corrupt. Is it a valid backup?');
+            }
+            try {
+                await importBackupObject(imported);
+            } catch (err) {
+                alert('Error reading file. Is it a valid backup?');
+                console.error(err);
+            }
+        } catch (e) {
+            alert(e instanceof Error ? e.message : 'Drive restore failed. Please try again.');
+        }
+    });
 }

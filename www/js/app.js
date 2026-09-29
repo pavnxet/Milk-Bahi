@@ -12979,7 +12979,7 @@ var require_regexp_exec = __commonJS({
         var state2 = getInternalState(re2);
         var str = toString2(string);
         var raw = state2.raw;
-        var result, reCopy, lastIndex, match, i3, object, group;
+        var result, reCopy, lastIndex, match, i3, object, group2;
         if (raw) {
           raw.lastIndex = re2.lastIndex;
           result = call(patchedExec, raw, str);
@@ -13030,8 +13030,8 @@ var require_regexp_exec = __commonJS({
         if (match && groups) {
           match.groups = object = create2(null);
           for (i3 = 0; i3 < groups.length; i3++) {
-            group = groups[i3];
-            object[group[0]] = match[group[1]];
+            group2 = groups[i3];
+            object[group2[0]] = match[group2[1]];
           }
         }
         return match;
@@ -18872,15 +18872,15 @@ var init_index_es = __esm({
           rect.attributes.y = new Property(document2, "y", -MAX_VIRTUAL_PIXELS / 3);
           rect.attributes.width = new Property(document2, "width", MAX_VIRTUAL_PIXELS);
           rect.attributes.height = new Property(document2, "height", MAX_VIRTUAL_PIXELS);
-          var group = new GElement(document2, null);
-          group.attributes.transform = new Property(document2, "transform", this.getAttribute("gradientTransform").getValue());
-          group.children = [rect];
+          var group2 = new GElement(document2, null);
+          group2.attributes.transform = new Property(document2, "transform", this.getAttribute("gradientTransform").getValue());
+          group2.children = [rect];
           var patternSvg = new SVGElement(document2, null);
           patternSvg.attributes.x = new Property(document2, "x", 0);
           patternSvg.attributes.y = new Property(document2, "y", 0);
           patternSvg.attributes.width = new Property(document2, "width", rootView.width);
           patternSvg.attributes.height = new Property(document2, "height", rootView.height);
-          patternSvg.children = [group];
+          patternSvg.children = [group2];
           var patternCanvas = document2.createCanvas(rootView.width, rootView.height);
           var patternCtx = patternCanvas.getContext("2d");
           patternCtx.fillStyle = gradient;
@@ -20684,6 +20684,160 @@ var init_index_es = __esm({
         this.documentElement.resize(width, height, preserveAspectRatio);
       }
     };
+  }
+});
+
+// node_modules/@codetrix-studio/capacitor-google-auth/dist/esm/definitions.js
+var init_definitions2 = __esm({
+  "node_modules/@codetrix-studio/capacitor-google-auth/dist/esm/definitions.js"() {
+  }
+});
+
+// node_modules/@codetrix-studio/capacitor-google-auth/dist/esm/web.js
+var web_exports5 = {};
+__export(web_exports5, {
+  GoogleAuthWeb: () => GoogleAuthWeb
+});
+var GoogleAuthWeb;
+var init_web5 = __esm({
+  "node_modules/@codetrix-studio/capacitor-google-auth/dist/esm/web.js"() {
+    init_dist();
+    GoogleAuthWeb = class extends WebPlugin {
+      constructor() {
+        super();
+      }
+      loadScript() {
+        if (typeof document === "undefined") {
+          return;
+        }
+        const scriptId = "gapi";
+        const scriptEl = document === null || document === void 0 ? void 0 : document.getElementById(scriptId);
+        if (scriptEl) {
+          return;
+        }
+        const head = document.getElementsByTagName("head")[0];
+        const script = document.createElement("script");
+        script.type = "text/javascript";
+        script.defer = true;
+        script.async = true;
+        script.id = scriptId;
+        script.onload = this.platformJsLoaded.bind(this);
+        script.src = "https://apis.google.com/js/platform.js";
+        head.appendChild(script);
+      }
+      initialize(_options = {
+        clientId: "",
+        scopes: [],
+        grantOfflineAccess: false
+      }) {
+        var _a2, _b2;
+        if (typeof window === "undefined") {
+          return;
+        }
+        const metaClientId = (_a2 = document.getElementsByName("google-signin-client_id")[0]) === null || _a2 === void 0 ? void 0 : _a2.content;
+        const clientId = _options.clientId || metaClientId || "";
+        if (!clientId) {
+          console.warn("GoogleAuthPlugin - clientId is empty");
+        }
+        this.options = {
+          clientId,
+          grantOfflineAccess: (_b2 = _options.grantOfflineAccess) !== null && _b2 !== void 0 ? _b2 : false,
+          scopes: _options.scopes || []
+        };
+        this.gapiLoaded = new Promise((resolve3) => {
+          window.gapiResolve = resolve3;
+          this.loadScript();
+        });
+        this.addUserChangeListener();
+      }
+      platformJsLoaded() {
+        gapi.load("auth2", () => {
+          const clientConfig = {
+            client_id: this.options.clientId,
+            plugin_name: "CodetrixStudioCapacitorGoogleAuth"
+          };
+          if (this.options.scopes.length) {
+            clientConfig.scope = this.options.scopes.join(" ");
+          }
+          gapi.auth2.init(clientConfig);
+          window.gapiResolve();
+        });
+      }
+      async signIn() {
+        return new Promise(async (resolve3, reject) => {
+          var _a2;
+          try {
+            let serverAuthCode;
+            const needsOfflineAccess = (_a2 = this.options.grantOfflineAccess) !== null && _a2 !== void 0 ? _a2 : false;
+            if (needsOfflineAccess) {
+              const offlineAccessResponse = await gapi.auth2.getAuthInstance().grantOfflineAccess();
+              serverAuthCode = offlineAccessResponse.code;
+            } else {
+              await gapi.auth2.getAuthInstance().signIn();
+            }
+            const googleUser = gapi.auth2.getAuthInstance().currentUser.get();
+            if (needsOfflineAccess) {
+              await googleUser.reloadAuthResponse();
+            }
+            const user = this.getUserFrom(googleUser);
+            user.serverAuthCode = serverAuthCode;
+            resolve3(user);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+      async refresh() {
+        const authResponse = await gapi.auth2.getAuthInstance().currentUser.get().reloadAuthResponse();
+        return {
+          accessToken: authResponse.access_token,
+          idToken: authResponse.id_token,
+          refreshToken: ""
+        };
+      }
+      async signOut() {
+        return gapi.auth2.getAuthInstance().signOut();
+      }
+      async addUserChangeListener() {
+        await this.gapiLoaded;
+        gapi.auth2.getAuthInstance().currentUser.listen((googleUser) => {
+          this.notifyListeners("userChange", googleUser.isSignedIn() ? this.getUserFrom(googleUser) : null);
+        });
+      }
+      getUserFrom(googleUser) {
+        const user = {};
+        const profile = googleUser.getBasicProfile();
+        user.email = profile.getEmail();
+        user.familyName = profile.getFamilyName();
+        user.givenName = profile.getGivenName();
+        user.id = profile.getId();
+        user.imageUrl = profile.getImageUrl();
+        user.name = profile.getName();
+        const authResponse = googleUser.getAuthResponse(true);
+        user.authentication = {
+          accessToken: authResponse.access_token,
+          idToken: authResponse.id_token,
+          refreshToken: ""
+        };
+        return user;
+      }
+    };
+  }
+});
+
+// node_modules/@codetrix-studio/capacitor-google-auth/dist/esm/index.js
+var esm_exports = {};
+__export(esm_exports, {
+  GoogleAuth: () => GoogleAuth
+});
+var GoogleAuth;
+var init_esm = __esm({
+  "node_modules/@codetrix-studio/capacitor-google-auth/dist/esm/index.js"() {
+    init_dist();
+    init_definitions2();
+    GoogleAuth = registerPlugin("GoogleAuth", {
+      web: () => Promise.resolve().then(() => (init_web5(), web_exports5)).then((m4) => new m4.GoogleAuthWeb())
+    });
   }
 });
 
@@ -48688,6 +48842,9 @@ function sanitizeData(data) {
     if (typeof entry.reminderTime === "string" && TIME_RE.test(entry.reminderTime)) {
       clean.reminderTime = entry.reminderTime;
     }
+    if (typeof entry.savedAt === "number" && Number.isFinite(entry.savedAt) && entry.savedAt > 0) {
+      clean.savedAt = entry.savedAt;
+    }
     out[key] = clean;
   }
   return out;
@@ -48697,6 +48854,52 @@ function todayKey(d2 = /* @__PURE__ */ new Date()) {
 }
 function isFutureKey(key, today = todayKey()) {
   return typeof key === "string" && key > today;
+}
+var MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
+];
+function monthLabel(yyyyMM) {
+  const m4 = /^(\d{4})-(\d{2})$/.exec(String(yyyyMM ?? ""));
+  if (!m4) return String(yyyyMM ?? "");
+  const mi = Number(m4[2]);
+  if (mi < 1 || mi > 12) return String(yyyyMM);
+  return `${MONTH_NAMES[mi - 1]} ${m4[1]}`;
+}
+function groupEntriesByMonth(entries2) {
+  const map3 = /* @__PURE__ */ new Map();
+  for (const [date, val] of entries2 ?? []) {
+    const key = String(date).slice(0, 7);
+    if (!map3.has(key)) map3.set(key, []);
+    map3.get(key).push([date, val]);
+  }
+  return [...map3.keys()].sort().map((key) => ({ key, label: monthLabel(key), rows: map3.get(key) }));
+}
+function formatDDMMYYYY(s3) {
+  const m4 = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s3 ?? ""));
+  if (!m4) return String(s3 ?? "");
+  return `${m4[3]}-${m4[2]}-${m4[1]}`;
+}
+function formatTime12h(ts) {
+  if (ts === null || ts === void 0) return "--";
+  const n2 = Number(ts);
+  if (!Number.isFinite(n2)) return "--";
+  const d2 = new Date(n2);
+  if (Number.isNaN(d2.getTime())) return "--";
+  const h24 = d2.getHours();
+  const suffix = h24 < 12 ? "AM" : "PM";
+  const h12 = h24 % 12 || 12;
+  return `${String(h12).padStart(2, "0")}:${String(d2.getMinutes()).padStart(2, "0")} ${suffix}`;
 }
 var STAR_PROMPT_EVERY = 3;
 function shouldPromptStar(count) {
@@ -48745,13 +48948,121 @@ function generateCSVContent(entries2, currentCowPrice, currentBuffaloPrice) {
   return csvContent;
 }
 
+// src/version.js
+var APP_VERSION = "3.4.0";
+
+// src/driveBackup.js
+var GOOGLE_WEB_CLIENT_ID = "PASTE_YOUR_WEB_CLIENT_ID_HERE";
+var DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+var DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
+var DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
+var BACKUP_NAME_FRAGMENT = "milk-tracker-backup";
+var googleAuthInitDone = false;
+function assertClientId() {
+  if (!GOOGLE_WEB_CLIENT_ID || GOOGLE_WEB_CLIENT_ID === "PASTE_YOUR_WEB_CLIENT_ID_HERE") {
+    throw new Error(
+      'Google Drive is not set up yet: paste your OAuth web client ID into GOOGLE_WEB_CLIENT_ID in src/driveBackup.js (see README "Google Drive backup setup").'
+    );
+  }
+}
+function buildDriveListQuery() {
+  return `name contains '${BACKUP_NAME_FRAGMENT}' and trashed = false`;
+}
+async function driveSignIn() {
+  assertClientId();
+  let GoogleAuth2;
+  try {
+    ({ GoogleAuth: GoogleAuth2 } = await Promise.resolve().then(() => (init_esm(), esm_exports)));
+  } catch (_3) {
+    throw new Error("Google sign-in is unavailable (native plugin failed to load). Rebuild the app and try again.");
+  }
+  try {
+    if (!googleAuthInitDone) {
+      await GoogleAuth2.initialize({
+        clientId: GOOGLE_WEB_CLIENT_ID,
+        scopes: [DRIVE_SCOPE],
+        grantOfflineAccess: false
+      });
+      googleAuthInitDone = true;
+    }
+    const user = await GoogleAuth2.signIn();
+    const accessToken = user && user.authentication && user.authentication.accessToken;
+    if (!accessToken) {
+      throw new Error("no access token was returned. Please try again.");
+    }
+    return { accessToken, email: user.email || "" };
+  } catch (e2) {
+    if (e2 instanceof Error && /not set up yet/.test(e2.message)) throw e2;
+    const detail = e2 instanceof Error && e2.message ? e2.message : "please try again.";
+    throw new Error(`Google sign-in failed: ${detail}`);
+  }
+}
+async function driveUpload(filename, jsonText, token) {
+  const metadata = { name: filename, mimeType: "application/json" };
+  const boundary = "milkbahi" + Date.now().toString(36);
+  const body = "--" + boundary + "\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n" + JSON.stringify(metadata) + "\r\n--" + boundary + "\r\nContent-Type: application/json\r\n\r\n" + jsonText + "\r\n--" + boundary + "--";
+  let res;
+  try {
+    res = await fetch(DRIVE_UPLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`
+      },
+      body
+    });
+  } catch (_3) {
+    throw new Error("Drive upload failed: no network connection. Check the internet and try again.");
+  }
+  if (!res.ok) {
+    throw new Error(`Drive upload failed (HTTP ${res.status}). Please sign in again and retry.`);
+  }
+  return res.json();
+}
+async function driveFindNewest(token) {
+  const params = new URLSearchParams({
+    q: buildDriveListQuery(),
+    orderBy: "modifiedTime desc",
+    fields: "files(id,name,modifiedTime)",
+    pageSize: "1"
+  });
+  let res;
+  try {
+    res = await fetch(`${DRIVE_FILES_URL}?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (_3) {
+    throw new Error("Drive search failed: no network connection. Check the internet and try again.");
+  }
+  if (!res.ok) {
+    throw new Error(`Drive search failed (HTTP ${res.status}). Please sign in again and retry.`);
+  }
+  const json = await res.json();
+  const files = json && json.files || [];
+  return files.length > 0 ? files[0] : null;
+}
+async function driveDownload(fileId, token) {
+  let res;
+  try {
+    res = await fetch(`${DRIVE_FILES_URL}/${encodeURIComponent(fileId)}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch (_3) {
+    throw new Error("Drive download failed: no network connection. Check the internet and try again.");
+  }
+  if (!res.ok) {
+    throw new Error(`Drive download failed (HTTP ${res.status}). Please sign in again and retry.`);
+  }
+  return res.text();
+}
+
 // src/app.js
-var APP_VERSION = "3.3.0";
 var REPO_URL = "https://github.com/pavnxet/Milk-Bahi";
 var RELEASES_URL = "https://github.com/pavnxet/Milk-Bahi/releases";
 var RELEASES_API = "https://api.github.com/repos/pavnxet/Milk-Bahi/releases/latest";
 var STAR_COUNT_KEY = "milk_tracker_star_prompt_count";
 var NOTIFIED_VERSION_KEY = "milk_tracker_notified_version";
+var NOTIF_ASKED_KEY = "milk_tracker_notif_asked";
 var STORAGE_KEY = "milk_tracker_data";
 var PRICE_COW_KEY = "milk_tracker_price_cow";
 var PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
@@ -48886,6 +49197,12 @@ async function init() {
     } catch (e2) {
       console.error("Failed to re-schedule reminder on init", e2);
     }
+  }
+  try {
+    if (!localStorage.getItem(NOTIF_ASKED_KEY)) {
+      setTimeout(() => openNotifsModal(), 1200);
+    }
+  } catch (_3) {
   }
   checkForReleaseNotification();
 }
@@ -49038,7 +49355,8 @@ async function saveData(date, qty) {
   const entry = {
     ...qty,
     cowPrice: state.cowPrice,
-    buffaloPrice: state.buffaloPrice
+    buffaloPrice: state.buffaloPrice,
+    savedAt: Date.now()
   };
   state.data[date] = entry;
   await saveDataToDisk();
@@ -49355,25 +49673,28 @@ reminderTimeInput.addEventListener("change", async (e2) => {
     await scheduleNotification();
   }
 });
+function buildBackupObject() {
+  return {
+    version: 1,
+    timestamp: Date.now(),
+    settings: {
+      cowPrice: state.cowPrice,
+      buffaloPrice: state.buffaloPrice,
+      monthlyTarget: state.monthlyTarget,
+      monthlyBudget: state.monthlyBudget,
+      isDark: state.isDark,
+      reminderEnabled: state.reminderEnabled,
+      reminderTime: state.reminderTime
+    },
+    data: state.data
+  };
+}
 backupBtn.addEventListener("click", async () => {
   const d2 = /* @__PURE__ */ new Date();
   const todayKey2 = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
   const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey2}.json`);
   try {
-    const backupObject = {
-      version: 1,
-      timestamp: Date.now(),
-      settings: {
-        cowPrice: state.cowPrice,
-        buffaloPrice: state.buffaloPrice,
-        monthlyTarget: state.monthlyTarget,
-        monthlyBudget: state.monthlyBudget,
-        isDark: state.isDark,
-        reminderEnabled: state.reminderEnabled,
-        reminderTime: state.reminderTime
-      },
-      data: state.data
-    };
+    const backupObject = buildBackupObject();
     const dataStr = JSON.stringify(backupObject, null, 2);
     const result = await Filesystem.writeFile({
       path: fileName,
@@ -49396,20 +49717,7 @@ backupBtn.addEventListener("click", async () => {
   } catch (e2) {
     if (isShareDismissed(e2)) return;
     console.error("Backup failed", e2);
-    const backupObject = {
-      version: 1,
-      timestamp: Date.now(),
-      settings: {
-        cowPrice: state.cowPrice,
-        buffaloPrice: state.buffaloPrice,
-        monthlyTarget: state.monthlyTarget,
-        monthlyBudget: state.monthlyBudget,
-        isDark: state.isDark,
-        reminderEnabled: state.reminderEnabled,
-        reminderTime: state.reminderTime
-      },
-      data: state.data
-    };
+    const backupObject = buildBackupObject();
     const dataStr = JSON.stringify(backupObject, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -49425,6 +49733,77 @@ backupBtn.addEventListener("click", async () => {
 restoreBtn.addEventListener("click", () => {
   restoreInput.click();
 });
+async function importBackupObject(imported) {
+  if (!imported || typeof imported !== "object" || Array.isArray(imported)) throw new Error("Invalid JSON");
+  const isNewFormat = "data" in imported || "settings" in imported;
+  let newData = {};
+  if (isNewFormat) {
+    if (!imported.data || typeof imported.data !== "object" || Array.isArray(imported.data)) {
+      throw new Error("Invalid Data format");
+    }
+    newData = sanitizeData(imported.data);
+  } else {
+    newData = sanitizeData(imported);
+  }
+  const incomingCount = Object.keys(newData).length;
+  const currentCount = Object.keys(state.data).length;
+  const backupDate = imported.timestamp ? new Date(imported.timestamp).toLocaleString() : "unknown date";
+  if (incomingCount === 0 && currentCount > 0) {
+    const wipe = confirm(`Backup from ${backupDate} has 0 valid entries (you currently have ${currentCount}). Restoring would ERASE all current data. Really wipe and restore?`);
+    if (!wipe) return "cancelled";
+  }
+  if (!confirm(`Restore backup from ${backupDate}? It has ${incomingCount} entries (you currently have ${currentCount}). This will overwrite your current local data. Are you sure?`)) {
+    return "cancelled";
+  }
+  if (isNewFormat) {
+    if (typeof imported.settings?.cowPrice === "number") {
+      state.cowPrice = imported.settings.cowPrice;
+      localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+      priceCowInput.value = state.cowPrice;
+    }
+    if (typeof imported.settings?.buffaloPrice === "number") {
+      state.buffaloPrice = imported.settings.buffaloPrice;
+      localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
+      priceBuffaloInput.value = state.buffaloPrice;
+    }
+    if (typeof imported.settings?.monthlyTarget === "number") {
+      state.monthlyTarget = imported.settings.monthlyTarget;
+      localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
+      monthlyTargetInput.value = state.monthlyTarget;
+    }
+    if (typeof imported.settings?.monthlyBudget === "number") {
+      state.monthlyBudget = imported.settings.monthlyBudget;
+      localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
+      monthlyBudgetInput.value = state.monthlyBudget;
+    }
+    if (typeof imported.settings?.isDark === "boolean") {
+      state.isDark = imported.settings.isDark;
+      document.body.setAttribute("data-theme", state.isDark ? "dark" : "light");
+      localStorage.setItem(THEME_KEY, state.isDark ? "dark" : "light");
+      themeToggle.checked = state.isDark;
+    }
+    if (typeof imported.settings?.reminderEnabled === "boolean") {
+      state.reminderEnabled = imported.settings.reminderEnabled;
+      localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+      reminderToggle.checked = state.reminderEnabled;
+      reminderTimeInput.style.display = state.reminderEnabled ? "block" : "none";
+    }
+    if (typeof imported.settings?.reminderTime === "string") {
+      state.reminderTime = imported.settings.reminderTime;
+      localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+      reminderTimeInput.value = state.reminderTime;
+    }
+    if (state.reminderEnabled) await scheduleNotification();
+    else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+  }
+  state.data = newData;
+  await saveDataToDisk();
+  alert("Data and settings restored successfully!");
+  loadEditorForDate(dateInput.value);
+  renderSummary();
+  renderFullHistory();
+  return "restored";
+}
 restoreInput.addEventListener("change", (e2) => {
   const file = e2.target.files[0];
   if (!file) return;
@@ -49432,78 +49811,7 @@ restoreInput.addEventListener("change", (e2) => {
   reader.onload = async (event) => {
     try {
       const imported = JSON.parse(event.target.result);
-      if (!imported || typeof imported !== "object" || Array.isArray(imported)) throw new Error("Invalid JSON");
-      const isNewFormat = "data" in imported || "settings" in imported;
-      let newData = {};
-      if (isNewFormat) {
-        if (!imported.data || typeof imported.data !== "object" || Array.isArray(imported.data)) {
-          throw new Error("Invalid Data format");
-        }
-        newData = sanitizeData(imported.data);
-      } else {
-        newData = sanitizeData(imported);
-      }
-      const incomingCount = Object.keys(newData).length;
-      const currentCount = Object.keys(state.data).length;
-      const backupDate = imported.timestamp ? new Date(imported.timestamp).toLocaleString() : "unknown date";
-      if (incomingCount === 0 && currentCount > 0) {
-        const wipe = confirm(`Backup from ${backupDate} has 0 valid entries (you currently have ${currentCount}). Restoring would ERASE all current data. Really wipe and restore?`);
-        if (!wipe) {
-          restoreInput.value = "";
-          return;
-        }
-      }
-      if (!confirm(`Restore backup from ${backupDate}? It has ${incomingCount} entries (you currently have ${currentCount}). This will overwrite your current local data. Are you sure?`)) {
-        restoreInput.value = "";
-        return;
-      }
-      if (isNewFormat) {
-        if (typeof imported.settings?.cowPrice === "number") {
-          state.cowPrice = imported.settings.cowPrice;
-          localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
-          priceCowInput.value = state.cowPrice;
-        }
-        if (typeof imported.settings?.buffaloPrice === "number") {
-          state.buffaloPrice = imported.settings.buffaloPrice;
-          localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
-          priceBuffaloInput.value = state.buffaloPrice;
-        }
-        if (typeof imported.settings?.monthlyTarget === "number") {
-          state.monthlyTarget = imported.settings.monthlyTarget;
-          localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
-          monthlyTargetInput.value = state.monthlyTarget;
-        }
-        if (typeof imported.settings?.monthlyBudget === "number") {
-          state.monthlyBudget = imported.settings.monthlyBudget;
-          localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
-          monthlyBudgetInput.value = state.monthlyBudget;
-        }
-        if (typeof imported.settings?.isDark === "boolean") {
-          state.isDark = imported.settings.isDark;
-          document.body.setAttribute("data-theme", state.isDark ? "dark" : "light");
-          localStorage.setItem(THEME_KEY, state.isDark ? "dark" : "light");
-          themeToggle.checked = state.isDark;
-        }
-        if (typeof imported.settings?.reminderEnabled === "boolean") {
-          state.reminderEnabled = imported.settings.reminderEnabled;
-          localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
-          reminderToggle.checked = state.reminderEnabled;
-          reminderTimeInput.style.display = state.reminderEnabled ? "block" : "none";
-        }
-        if (typeof imported.settings?.reminderTime === "string") {
-          state.reminderTime = imported.settings.reminderTime;
-          localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
-          reminderTimeInput.value = state.reminderTime;
-        }
-        if (state.reminderEnabled) await scheduleNotification();
-        else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
-      }
-      state.data = newData;
-      await saveDataToDisk();
-      alert("Data and settings restored successfully!");
-      loadEditorForDate(dateInput.value);
-      renderSummary();
-      renderFullHistory();
+      await importBackupObject(imported);
     } catch (err2) {
       alert("Error reading file. Is it a valid backup?");
       console.error(err2);
@@ -49547,6 +49855,8 @@ navItems.forEach((item) => {
     });
     if (targetId === "tab-analytics") renderAnalytics();
     if (targetId === "tab-history" && historyDirty) renderFullHistory();
+    const fab = document.getElementById("whatsapp-fab");
+    if (fab) fab.style.display = targetId === "tab-home" ? "" : "none";
   });
 });
 var analyticsCharts = {};
@@ -49770,84 +50080,195 @@ async function exportToPDF() {
   if (entries2.length === 0) return alert("No data to export");
   const doc = new E();
   const pdfSafeText = (s3) => String(s3 ?? "").replace(/₹/g, "Rs.").replace(/[^\x20-\x7E\xA0-\xFF]/g, " ");
-  doc.setFontSize(18);
-  doc.text(pdfSafeText(`Milk Report`), 14, 22);
-  doc.setFontSize(12);
-  doc.text(pdfSafeText(label), 14, 28);
-  const printHeader = (yPos) => {
-    doc.setFontSize(10);
-    doc.setTextColor(0);
-    doc.text("Date", 14, yPos);
-    doc.text("Cow", 50, yPos);
-    doc.text("Buff", 70, yPos);
-    doc.text("Cost", 90, yPos);
-    doc.text("Note", 120, yPos);
-    doc.line(14, yPos + 2, 200, yPos + 2);
+  const MARGIN = 14;
+  const USABLE = 182;
+  const RIGHT = MARGIN + USABLE;
+  const BREAK_Y = 270;
+  const FOOTER_Y = 287;
+  const BLUE = [0, 122, 255];
+  const DARK = [33, 33, 33];
+  const GRAY = [120, 120, 120];
+  const WHITE = [255, 255, 255];
+  const BOX_FILL = [245, 245, 245];
+  const TOTAL_FILL = [238, 238, 238];
+  const GRID = [200, 200, 200];
+  const ROW_H = 7;
+  const COLS = [29, 22, 20, 20, 22, 34, 35];
+  const colX = (i3) => MARGIN + COLS.slice(0, i3).reduce((a3, w2) => a3 + w2, 0);
+  let badge = "Custom Range";
+  const allKeys = Object.keys(state.data).sort();
+  if (allKeys.length > 0) {
+    const first = allKeys[0];
+    const last = allKeys[allKeys.length - 1];
+    if (state.analyticsStart <= first && state.analyticsEnd >= last) {
+      badge = "All Time Report";
+    } else {
+      const sm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(state.analyticsStart || "");
+      const em = /^(\d{4})-(\d{2})-(\d{2})$/.exec(state.analyticsEnd || "");
+      if (sm && em && sm[1] === em[1] && sm[2] === em[2] && sm[3] === "01") {
+        const lastDay = new Date(Number(em[1]), Number(em[2]), 0).getDate();
+        if (Number(em[3]) === lastDay) badge = monthLabel(`${sm[1]}-${sm[2]}`);
+      }
+    }
+  }
+  doc.setFillColor(...BLUE);
+  doc.rect(MARGIN, 10, 12, 12, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(...WHITE);
+  doc.text(pdfSafeText("MB"), MARGIN + 2.4, 17.8);
+  doc.setTextColor(...DARK);
+  doc.setFontSize(16);
+  doc.text(pdfSafeText("Milk Bahi"), MARGIN + 15, 17.5);
+  doc.setFontSize(14);
+  doc.text(pdfSafeText("Milk Report"), MARGIN + 15, 25);
+  doc.setFontSize(11);
+  const badgeW = doc.getTextWidth(pdfSafeText(badge)) + 8;
+  doc.setFillColor(...BOX_FILL);
+  doc.setDrawColor(...GRID);
+  doc.rect(RIGHT - badgeW, 11.5, badgeW, 9, "FD");
+  doc.text(pdfSafeText(badge), RIGHT - badgeW + 4, 18);
+  doc.line(MARGIN, 28, RIGHT, 28);
+  const { totalCow, totalBuff, totalCost } = calculateTotals(entries2, state.cowPrice, state.buffaloPrice);
+  const stats = [
+    { label: "Total Milk (L)", value: (totalCow + totalBuff).toFixed(1) },
+    { label: "Total Amount (Rs)", value: `Rs. ${totalCost.toFixed(0)}` },
+    { label: "Cow Milk (L)", value: totalCow.toFixed(1) },
+    { label: "Buffalo Milk (L)", value: totalBuff.toFixed(1) }
+  ];
+  const BOX_W = 44;
+  const BOX_H = 18;
+  const GAP = (USABLE - BOX_W * 4) / 3;
+  let y3 = 34;
+  if (y3 + BOX_H > BREAK_Y) {
+    doc.addPage();
+    y3 = 20;
+  }
+  stats.forEach((s3, i3) => {
+    const bx = MARGIN + i3 * (BOX_W + GAP);
+    doc.setFillColor(...BOX_FILL);
+    doc.setDrawColor(...GRID);
+    doc.rect(bx, y3, BOX_W, BOX_H, "FD");
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(...GRAY);
+    doc.text(pdfSafeText(s3.label), bx + 3, y3 + 6);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(...DARK);
+    doc.text(pdfSafeText(s3.value), bx + 3, y3 + 13.5);
+  });
+  y3 += BOX_H + 8;
+  const printMonthHeader = (yy) => {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(...BLUE);
+    doc.text(pdfSafeText(group.label), MARGIN, yy);
+    doc.setTextColor(...DARK);
+    return yy + 7;
   };
-  let y3 = 40;
-  printHeader(y3);
-  y3 += 8;
-  let totalCow = 0, totalBuff = 0, totalCost = 0;
-  entries2.forEach(([date, val]) => {
-    if (y3 > 270) {
+  const printTableHeader = (yy) => {
+    doc.setFillColor(...BLUE);
+    doc.rect(MARGIN, yy - 5, USABLE, ROW_H, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...WHITE);
+    ["Date", "Time", "Cow", "Buff", "Milk (L)", "Rate", "Amount"].forEach((h4, i3) => {
+      doc.text(pdfSafeText(h4), colX(i3) + 2, yy);
+    });
+    doc.setTextColor(...DARK);
+    return yy + ROW_H;
+  };
+  for (const group2 of groupEntriesByMonth(entries2)) {
+    if (y3 + 16 > BREAK_Y) {
       doc.addPage();
       y3 = 20;
-      printHeader(y3);
-      y3 += 8;
     }
-    const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
-    totalCow += result.cow;
-    totalBuff += result.buffalo;
-    totalCost += result.cost;
-    doc.text(pdfSafeText(date), 14, y3);
-    doc.text(pdfSafeText(result.cow.toString()), 50, y3);
-    doc.text(pdfSafeText(result.buffalo.toString()), 70, y3);
-    doc.text(pdfSafeText(result.cost.toFixed(0)), 90, y3);
-    if (val.note) {
-      const lines = doc.splitTextToSize(pdfSafeText(val.note), 80);
-      for (const line of lines) {
-        if (y3 > 270) {
-          doc.addPage();
-          y3 = 20;
-          printHeader(y3);
-          y3 += 8;
-        }
-        doc.text(line, 120, y3);
-        y3 += 7;
+    y3 = printMonthHeader(y3);
+    y3 = printTableHeader(y3);
+    let monthMilk = 0;
+    let monthCost = 0;
+    for (const [date, val] of group2.rows) {
+      if (y3 + ROW_H > BREAK_Y) {
+        doc.addPage();
+        y3 = 20;
+        y3 = printMonthHeader(y3);
+        y3 = printTableHeader(y3);
       }
-    } else {
-      y3 += 7;
+      const entry = val && typeof val === "object" && !Array.isArray(val) ? val : {};
+      const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
+      const milk = result.cow + result.buffalo;
+      monthMilk += milk;
+      monthCost += result.cost;
+      const cells = [
+        formatDDMMYYYY(date),
+        formatTime12h(entry.savedAt),
+        result.cow.toFixed(1),
+        result.buffalo.toFixed(1),
+        `${milk.toFixed(1)} L`,
+        `${result.cowPrice} + ${result.buffaloPrice}`,
+        result.cost.toFixed(0)
+      ];
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...DARK);
+      doc.setDrawColor(...GRID);
+      cells.forEach((c4, i3) => {
+        doc.rect(colX(i3), y3 - 5, COLS[i3], ROW_H);
+        doc.text(pdfSafeText(c4), colX(i3) + 2, y3);
+      });
+      y3 += ROW_H;
+      if (entry.note) {
+        const lines = doc.splitTextToSize(pdfSafeText(entry.note), USABLE - 4);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(8);
+        doc.setTextColor(...GRAY);
+        for (const line of lines) {
+          if (y3 + 5 > BREAK_Y) {
+            doc.addPage();
+            y3 = 20;
+            y3 = printMonthHeader(y3);
+            y3 = printTableHeader(y3);
+          }
+          doc.text(line, MARGIN + 2, y3);
+          y3 += 5;
+        }
+        doc.setTextColor(...DARK);
+      }
     }
-  });
-  if (y3 > 250) {
-    doc.addPage();
-    y3 = 20;
-  } else {
-    y3 += 10;
+    if (y3 + ROW_H > BREAK_Y) {
+      doc.addPage();
+      y3 = 20;
+      y3 = printMonthHeader(y3);
+      y3 = printTableHeader(y3);
+    }
+    doc.setFillColor(...TOTAL_FILL);
+    doc.setDrawColor(...GRID);
+    doc.rect(MARGIN, y3 - 5, USABLE, ROW_H, "FD");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(...DARK);
+    doc.text(pdfSafeText("Monthly Total:"), colX(0) + 2, y3);
+    doc.text(pdfSafeText(`${monthMilk.toFixed(1)} L`), colX(4) + 2, y3);
+    doc.text(pdfSafeText(monthCost.toFixed(0)), colX(6) + 2, y3);
+    y3 += ROW_H + 6;
   }
-  doc.line(14, y3, 200, y3);
-  y3 += 10;
-  doc.setFontSize(14);
-  doc.text("Summary", 14, y3);
-  y3 += 8;
-  doc.setFontSize(12);
-  doc.text(pdfSafeText(`Total Cow Milk: ${totalCow.toFixed(1)} L`), 14, y3);
-  y3 += 6;
-  doc.text(pdfSafeText(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`), 14, y3);
-  y3 += 6;
-  doc.setFontSize(14);
-  doc.setTextColor(255, 0, 0);
-  doc.text(pdfSafeText(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`), 14, y3);
-  y3 += 8;
-  if (y3 > 260) {
-    doc.addPage();
-    y3 = 20;
+  const now = /* @__PURE__ */ new Date();
+  const stamp = `${formatDDMMYYYY(todayKey(now))} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+  const pageCount = doc.getNumberOfPages();
+  for (let i3 = 1; i3 <= pageCount; i3++) {
+    doc.setPage(i3);
+    doc.setDrawColor(...GRID);
+    doc.line(MARGIN, FOOTER_Y - 4, RIGHT, FOOTER_Y - 4);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...GRAY);
+    doc.text(pdfSafeText(`Generated on ${stamp}`), MARGIN, FOOTER_Y);
+    doc.setTextColor(...BLUE);
+    const brand = pdfSafeText("Milk Bahi");
+    doc.textWithLink(brand, RIGHT - doc.getTextWidth(brand), FOOTER_Y, { url: RELEASES_URL });
+    doc.setTextColor(...DARK);
   }
-  doc.setFontSize(11);
-  doc.setTextColor(0, 0, 255);
-  doc.textWithLink("Get the Milk Bahi app:", 14, y3, { url: RELEASES_URL });
-  y3 += 6;
-  doc.textWithLink(RELEASES_URL, 14, y3, { url: RELEASES_URL });
   try {
     const dataUri = doc.output("datauristring");
     const marker = ";base64,";
@@ -49980,6 +50401,8 @@ document.addEventListener("keydown", (e2) => {
     closeStarModal();
   } else if (settingsModal.classList.contains("active")) {
     closeSettings();
+  } else if (typeof notifModal !== "undefined" && notifModal && notifModal.classList.contains("active")) {
+    closeNotifsModal();
   } else if (sidebar && sidebar.classList.contains("active")) {
     closeSidebar();
   }
@@ -50048,6 +50471,111 @@ if (openRepoBtn) {
 }
 if (starBtn) {
   starBtn.addEventListener("click", () => openStarModal());
+}
+var notifModal = document.getElementById("notif-modal");
+var notifOverlay = document.getElementById("notif-overlay");
+var notifDialog = notifModal ? notifModal.querySelector(".modal-content") : null;
+var closeNotifBtn = document.getElementById("close-notif");
+var notifAllowBtn = document.getElementById("notif-allow");
+var notifLaterBtn = document.getElementById("notif-later");
+var lastNotifFocus = null;
+function openNotifsModal() {
+  if (!notifModal) return;
+  lastNotifFocus = document.activeElement;
+  notifModal.classList.add("active");
+  if (notifOverlay) notifOverlay.classList.add("active");
+  if (notifDialog && typeof notifDialog.focus === "function") notifDialog.focus();
+}
+function closeNotifsModal() {
+  if (!notifModal) return;
+  notifModal.classList.remove("active");
+  if (notifOverlay) notifOverlay.classList.remove("active");
+  const target = lastNotifFocus && document.contains(lastNotifFocus) ? lastNotifFocus : null;
+  if (target && typeof target.focus === "function") target.focus();
+  lastNotifFocus = null;
+}
+function markNotifAsked() {
+  try {
+    localStorage.setItem(NOTIF_ASKED_KEY, "true");
+  } catch (_3) {
+  }
+}
+if (notifAllowBtn) {
+  notifAllowBtn.addEventListener("click", async () => {
+    markNotifAsked();
+    try {
+      await LocalNotifications.requestPermissions();
+    } catch (_3) {
+    }
+    closeNotifsModal();
+  });
+}
+function dismissNotifsModal() {
+  markNotifAsked();
+  closeNotifsModal();
+}
+if (notifLaterBtn) notifLaterBtn.addEventListener("click", dismissNotifsModal);
+if (closeNotifBtn) closeNotifBtn.addEventListener("click", dismissNotifsModal);
+if (notifOverlay) notifOverlay.addEventListener("click", dismissNotifsModal);
+if (notifModal) {
+  notifModal.addEventListener("click", (e2) => {
+    if (e2.target === notifModal) dismissNotifsModal();
+  });
+}
+var driveStatusEl = document.getElementById("drive-status");
+var driveSigninBtn = document.getElementById("drive-signin-btn");
+var driveBackupBtn = document.getElementById("drive-backup-btn");
+var driveRestoreBtn = document.getElementById("drive-restore-btn");
+var driveToken = null;
+function setDriveStatus(text2) {
+  if (driveStatusEl) driveStatusEl.textContent = text2;
+}
+if (driveSigninBtn) {
+  driveSigninBtn.addEventListener("click", async () => {
+    try {
+      const { accessToken, email } = await driveSignIn();
+      driveToken = accessToken;
+      setDriveStatus(email ? `Signed in as ${email}` : "Signed in");
+    } catch (e2) {
+      if (e2 instanceof Error && isShareDismissed(e2)) return;
+      alert(e2 instanceof Error ? e2.message : "Google sign-in failed. Please try again.");
+    }
+  });
+}
+if (driveBackupBtn) {
+  driveBackupBtn.addEventListener("click", async () => {
+    if (!driveToken) return alert("Please sign in to Google Drive first.");
+    const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey()}.json`);
+    try {
+      await driveUpload(fileName, JSON.stringify(buildBackupObject(), null, 2), driveToken);
+      alert(`Backup uploaded to Google Drive as ${fileName}.`);
+    } catch (e2) {
+      alert(e2 instanceof Error ? e2.message : "Drive backup failed. Please try again.");
+    }
+  });
+}
+if (driveRestoreBtn) {
+  driveRestoreBtn.addEventListener("click", async () => {
+    if (!driveToken) return alert("Please sign in to Google Drive first.");
+    try {
+      const newest = await driveFindNewest(driveToken);
+      if (!newest) return alert("No Drive backups found.");
+      let imported;
+      try {
+        imported = JSON.parse(await driveDownload(newest.id, driveToken));
+      } catch (_3) {
+        return alert("Downloaded backup is corrupt. Is it a valid backup?");
+      }
+      try {
+        await importBackupObject(imported);
+      } catch (err2) {
+        alert("Error reading file. Is it a valid backup?");
+        console.error(err2);
+      }
+    } catch (e2) {
+      alert(e2 instanceof Error ? e2.message : "Drive restore failed. Please try again.");
+    }
+  });
 }
 export {
   calculatePeakDay,

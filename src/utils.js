@@ -108,6 +108,11 @@ export function sanitizeData(data) {
         if (typeof entry.reminderTime === 'string' && TIME_RE.test(entry.reminderTime)) {
             clean.reminderTime = entry.reminderTime;
         }
+        // Preserve the save timestamp (drives the PDF Time column); drop
+        // garbage so old/corrupt values degrade to "--" instead of NaN.
+        if (typeof entry.savedAt === 'number' && Number.isFinite(entry.savedAt) && entry.savedAt > 0) {
+            clean.savedAt = entry.savedAt;
+        }
         out[key] = clean;
     }
     return out;
@@ -126,6 +131,57 @@ export function todayKey(d = new Date()) {
  */
 export function isFutureKey(key, today = todayKey()) {
     return typeof key === 'string' && key > today;
+}
+
+/**
+ * Group YYYY-MM-DD-keyed entries into ascending per-month buckets.
+ * Returns [{key:'YYYY-MM', label:'September 2026', rows:[[date,val],...]}].
+ */
+const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+];
+export function monthLabel(yyyyMM) {
+    const m = /^(\d{4})-(\d{2})$/.exec(String(yyyyMM ?? ''));
+    if (!m) return String(yyyyMM ?? '');
+    const mi = Number(m[2]);
+    if (mi < 1 || mi > 12) return String(yyyyMM);
+    return `${MONTH_NAMES[mi - 1]} ${m[1]}`;
+}
+export function groupEntriesByMonth(entries) {
+    const map = new Map();
+    for (const [date, val] of entries ?? []) {
+        const key = String(date).slice(0, 7);
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push([date, val]);
+    }
+    return [...map.keys()]
+        .sort()
+        .map((key) => ({ key, label: monthLabel(key), rows: map.get(key) }));
+}
+
+/**
+ * 'YYYY-MM-DD' -> 'DD-MM-YYYY'. Non-matching input passes through as string.
+ */
+export function formatDDMMYYYY(s) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s ?? ''));
+    if (!m) return String(s ?? '');
+    return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+/**
+ * Epoch-ms timestamp -> 'HH:MM AM' (local time, 12h). Missing/invalid -> '--'.
+ */
+export function formatTime12h(ts) {
+    if (ts === null || ts === undefined) return '--';
+    const n = Number(ts);
+    if (!Number.isFinite(n)) return '--';
+    const d = new Date(n);
+    if (Number.isNaN(d.getTime())) return '--';
+    const h24 = d.getHours();
+    const suffix = h24 < 12 ? 'AM' : 'PM';
+    const h12 = h24 % 12 || 12;
+    return `${String(h12).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} ${suffix}`;
 }
 
 /**

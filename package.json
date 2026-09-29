@@ -1,10 +1,10 @@
 {
   "name": "milk-bahi",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "description": "Daily milk tracking app for Mom.",
   "scripts": {
     "start": "npx cap serve",
-    "build": "esbuild src/app.js --bundle --outfile=www/js/app.js --format=esm && npx cap sync",
+    "build": "node scripts/sync-version.js && esbuild src/app.js --bundle --outfile=www/js/app.js --format=esm && npx cap sync",
     "android": "npx cap open android",
     "generate-assets": "npx capacitor-assets generate --android"
   },
@@ -15,6 +15,7 @@
     "@capacitor/local-notifications": "^5.0.8",
     "@capacitor/share": "^5.0.8",
     "@capacitor/toast": "^5.0.8",
+    "@codetrix-studio/capacitor-google-auth": "^3.3.6",
     "chart.js": "^4.5.1",
     "jspdf": "^4.1.0"
   },

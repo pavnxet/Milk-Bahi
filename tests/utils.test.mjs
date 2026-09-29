@@ -10,6 +10,10 @@ import {
   shouldPromptStar,
   compareVersions,
   shouldNotifyRelease,
+  groupEntriesByMonth,
+  monthLabel,
+  formatDDMMYYYY,
+  formatTime12h,
 } from '../src/utils.js';
 import { generateCSVContent } from '../src/csvHelper.js';
 
@@ -208,5 +212,72 @@ describe('shouldNotifyRelease', () => {
       shouldNotifyRelease(marked('not-a-version'), '3.2.0', ''),
       { notify: false }
     );
+  });
+});
+
+describe('groupEntriesByMonth', () => {
+  it('groups rows across months in ascending order with labels', () => {
+    const groups = groupEntriesByMonth([
+      ['2026-09-29', { cow: 1, buffalo: 0 }],
+      ['2026-08-31', { cow: 2, buffalo: 1 }],
+      ['2026-09-01', { cow: 0, buffalo: 3 }],
+    ]);
+    assert.deepEqual(groups.map((g) => g.key), ['2026-08', '2026-09']);
+    assert.equal(groups[0].label, 'August 2026');
+    assert.equal(groups[1].label, 'September 2026');
+    assert.deepEqual(groups[0].rows, [[
+      '2026-08-31',
+      { cow: 2, buffalo: 1 },
+    ]]);
+    assert.deepEqual(
+      groups[1].rows.map(([d]) => d),
+      ['2026-09-29', '2026-09-01'],
+    );
+  });
+
+  it('returns an empty array for empty input', () => {
+    assert.deepEqual(groupEntriesByMonth([]), []);
+  });
+});
+
+describe('monthLabel', () => {
+  it('renders "September 2026" style labels', () => {
+    assert.equal(monthLabel('2026-09'), 'September 2026');
+    assert.equal(monthLabel('2026-01'), 'January 2026');
+  });
+});
+
+describe('formatDDMMYYYY', () => {
+  it('converts YYYY-MM-DD to DD-MM-YYYY', () => {
+    assert.equal(formatDDMMYYYY('2026-09-29'), '29-09-2026');
+    assert.equal(formatDDMMYYYY('2026-01-05'), '05-01-2026');
+  });
+});
+
+describe('formatTime12h', () => {
+  it('formats epoch-ms timestamps as HH:MM AM/PM', () => {
+    assert.equal(formatTime12h(new Date(2026, 8, 29, 8, 5).getTime()), '08:05 AM');
+    assert.equal(formatTime12h(new Date(2026, 8, 29, 0, 15).getTime()), '12:15 AM');
+    assert.equal(formatTime12h(new Date(2026, 8, 29, 13, 45).getTime()), '01:45 PM');
+    assert.equal(formatTime12h(new Date(2026, 8, 29, 12, 0).getTime()), '12:00 PM');
+  });
+
+  it("returns '--' for missing or invalid timestamps", () => {
+    for (const bad of [null, undefined, NaN, Infinity, 'junk', {}]) {
+      assert.equal(formatTime12h(bad), '--', `expected -- for ${String(bad)}`);
+    }
+  });
+});
+
+describe('sanitizeData savedAt', () => {
+  it('preserves a numeric save timestamp, drops garbage', () => {
+    const out = sanitizeData({
+      '2026-09-29': { cow: 1, buffalo: 0, savedAt: 1759144800000 },
+      '2026-09-28': { cow: 1, buffalo: 0, savedAt: NaN },
+      '2026-09-27': { cow: 1, buffalo: 0, savedAt: 'yesterday' },
+    });
+    assert.equal(out['2026-09-29'].savedAt, 1759144800000);
+    assert.ok(!('savedAt' in out['2026-09-28']));
+    assert.ok(!('savedAt' in out['2026-09-27']));
   });
 });
