@@ -183,7 +183,7 @@ async function init() {
     renderDate(parseLocalDate(state.currentDate));
     if (state.reminderEnabled) {
         try {
-            await scheduleNotification();
+            await scheduleNotification({ silent: true });
         } catch (e) {
             console.error("Failed to re-schedule reminder on init", e);
         }
@@ -693,7 +693,10 @@ themeToggle.addEventListener('change', (e) => {
 });
 
 // --- Notifications Logic ---
-async function scheduleNotification() {
+// options.silent (used by the init re-schedule) never shows the permission
+// alert: background launches must not nag, only direct user actions may.
+async function scheduleNotification(options = {}) {
+    const silent = !!options.silent;
     if (!state.reminderEnabled) return;
 
     try {
@@ -709,7 +712,8 @@ async function scheduleNotification() {
 
         const result = await LocalNotifications.requestPermissions();
         if (result.display !== 'granted') {
-            alert("Notification permission required for reminders.");
+            if (!silent) alert("Notification permission required for reminders.");
+            else console.warn("Reminder re-schedule skipped: notification permission not granted.");
             state.reminderEnabled = false;
             reminderToggle.checked = false;
             localStorage.setItem(REMINDER_ENABLED_KEY, 'false');
@@ -1378,11 +1382,11 @@ async function exportToPDF() {
     y += BOX_H + 8;
 
     // --- Per-month groups with tables ---
-    const printMonthHeader = (yy) => {
+    const printMonthHeader = (yy, label) => {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(12);
         doc.setTextColor(...BLUE);
-        doc.text(pdfSafeText(group.label), MARGIN, yy);
+        doc.text(pdfSafeText(label), MARGIN, yy);
         doc.setTextColor(...DARK);
         return yy + 7;
     };
@@ -1401,7 +1405,7 @@ async function exportToPDF() {
 
     for (const group of groupEntriesByMonth(entries)) {
         if (y + 16 > BREAK_Y) { doc.addPage(); y = 20; }
-        y = printMonthHeader(y);
+        y = printMonthHeader(y, group.label);
         y = printTableHeader(y);
         let monthMilk = 0;
         let monthCost = 0;
@@ -1409,7 +1413,7 @@ async function exportToPDF() {
             if (y + ROW_H > BREAK_Y) {
                 doc.addPage();
                 y = 20;
-                y = printMonthHeader(y);
+                y = printMonthHeader(y, group.label);
                 y = printTableHeader(y);
             }
             const entry = (val && typeof val === 'object' && !Array.isArray(val)) ? val : {};
@@ -1445,7 +1449,7 @@ async function exportToPDF() {
                     if (y + 5 > BREAK_Y) {
                         doc.addPage();
                         y = 20;
-                        y = printMonthHeader(y);
+                        y = printMonthHeader(y, group.label);
                         y = printTableHeader(y);
                     }
                     doc.text(line, MARGIN + 2, y);
@@ -1457,7 +1461,7 @@ async function exportToPDF() {
         if (y + ROW_H > BREAK_Y) {
             doc.addPage();
             y = 20;
-            y = printMonthHeader(y);
+            y = printMonthHeader(y, group.label);
             y = printTableHeader(y);
         }
         doc.setFillColor(...TOTAL_FILL);
@@ -1761,6 +1765,9 @@ let lastNotifFocus = null;
 
 function openNotifsModal() {
     if (!notifModal) return;
+    // Mark asked at SHOW time (not dismiss time): dismissals that bypass
+    // every handler (e.g. the Android back button) must not re-trigger it.
+    markNotifAsked();
     lastNotifFocus = document.activeElement;
     notifModal.classList.add('active');
     if (notifOverlay) notifOverlay.classList.add('active');

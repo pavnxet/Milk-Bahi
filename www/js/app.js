@@ -12979,7 +12979,7 @@ var require_regexp_exec = __commonJS({
         var state2 = getInternalState(re2);
         var str = toString2(string);
         var raw = state2.raw;
-        var result, reCopy, lastIndex, match, i3, object, group2;
+        var result, reCopy, lastIndex, match, i3, object, group;
         if (raw) {
           raw.lastIndex = re2.lastIndex;
           result = call(patchedExec, raw, str);
@@ -13030,8 +13030,8 @@ var require_regexp_exec = __commonJS({
         if (match && groups) {
           match.groups = object = create2(null);
           for (i3 = 0; i3 < groups.length; i3++) {
-            group2 = groups[i3];
-            object[group2[0]] = match[group2[1]];
+            group = groups[i3];
+            object[group[0]] = match[group[1]];
           }
         }
         return match;
@@ -18872,15 +18872,15 @@ var init_index_es = __esm({
           rect.attributes.y = new Property(document2, "y", -MAX_VIRTUAL_PIXELS / 3);
           rect.attributes.width = new Property(document2, "width", MAX_VIRTUAL_PIXELS);
           rect.attributes.height = new Property(document2, "height", MAX_VIRTUAL_PIXELS);
-          var group2 = new GElement(document2, null);
-          group2.attributes.transform = new Property(document2, "transform", this.getAttribute("gradientTransform").getValue());
-          group2.children = [rect];
+          var group = new GElement(document2, null);
+          group.attributes.transform = new Property(document2, "transform", this.getAttribute("gradientTransform").getValue());
+          group.children = [rect];
           var patternSvg = new SVGElement(document2, null);
           patternSvg.attributes.x = new Property(document2, "x", 0);
           patternSvg.attributes.y = new Property(document2, "y", 0);
           patternSvg.attributes.width = new Property(document2, "width", rootView.width);
           patternSvg.attributes.height = new Property(document2, "height", rootView.height);
-          patternSvg.children = [group2];
+          patternSvg.children = [group];
           var patternCanvas = document2.createCanvas(rootView.width, rootView.height);
           var patternCtx = patternCanvas.getContext("2d");
           patternCtx.fillStyle = gradient;
@@ -48934,7 +48934,7 @@ async function init() {
   renderDate(parseLocalDate(state.currentDate));
   if (state.reminderEnabled) {
     try {
-      await scheduleNotification();
+      await scheduleNotification({ silent: true });
     } catch (e2) {
       console.error("Failed to re-schedule reminder on init", e2);
     }
@@ -49353,7 +49353,8 @@ themeToggle.addEventListener("change", (e2) => {
   document.body.setAttribute("data-theme", state.isDark ? "dark" : "light");
   localStorage.setItem(THEME_KEY, state.isDark ? "dark" : "light");
 });
-async function scheduleNotification() {
+async function scheduleNotification(options = {}) {
+  const silent = !!options.silent;
   if (!state.reminderEnabled) return;
   try {
     await LocalNotifications.createChannel({
@@ -49368,7 +49369,8 @@ async function scheduleNotification() {
     });
     const result = await LocalNotifications.requestPermissions();
     if (result.display !== "granted") {
-      alert("Notification permission required for reminders.");
+      if (!silent) alert("Notification permission required for reminders.");
+      else console.warn("Reminder re-schedule skipped: notification permission not granted.");
       state.reminderEnabled = false;
       reminderToggle.checked = false;
       localStorage.setItem(REMINDER_ENABLED_KEY, "false");
@@ -49900,11 +49902,11 @@ async function exportToPDF() {
     doc.text(pdfSafeText(s3.value), bx + 3, y3 + 13.5);
   });
   y3 += BOX_H + 8;
-  const printMonthHeader = (yy) => {
+  const printMonthHeader = (yy, label2) => {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
     doc.setTextColor(...BLUE);
-    doc.text(pdfSafeText(group.label), MARGIN, yy);
+    doc.text(pdfSafeText(label2), MARGIN, yy);
     doc.setTextColor(...DARK);
     return yy + 7;
   };
@@ -49920,20 +49922,20 @@ async function exportToPDF() {
     doc.setTextColor(...DARK);
     return yy + ROW_H;
   };
-  for (const group2 of groupEntriesByMonth(entries2)) {
+  for (const group of groupEntriesByMonth(entries2)) {
     if (y3 + 16 > BREAK_Y) {
       doc.addPage();
       y3 = 20;
     }
-    y3 = printMonthHeader(y3);
+    y3 = printMonthHeader(y3, group.label);
     y3 = printTableHeader(y3);
     let monthMilk = 0;
     let monthCost = 0;
-    for (const [date, val] of group2.rows) {
+    for (const [date, val] of group.rows) {
       if (y3 + ROW_H > BREAK_Y) {
         doc.addPage();
         y3 = 20;
-        y3 = printMonthHeader(y3);
+        y3 = printMonthHeader(y3, group.label);
         y3 = printTableHeader(y3);
       }
       const entry = val && typeof val === "object" && !Array.isArray(val) ? val : {};
@@ -49968,7 +49970,7 @@ async function exportToPDF() {
           if (y3 + 5 > BREAK_Y) {
             doc.addPage();
             y3 = 20;
-            y3 = printMonthHeader(y3);
+            y3 = printMonthHeader(y3, group.label);
             y3 = printTableHeader(y3);
           }
           doc.text(line, MARGIN + 2, y3);
@@ -49980,7 +49982,7 @@ async function exportToPDF() {
     if (y3 + ROW_H > BREAK_Y) {
       doc.addPage();
       y3 = 20;
-      y3 = printMonthHeader(y3);
+      y3 = printMonthHeader(y3, group.label);
       y3 = printTableHeader(y3);
     }
     doc.setFillColor(...TOTAL_FILL);
@@ -50222,6 +50224,7 @@ var notifLaterBtn = document.getElementById("notif-later");
 var lastNotifFocus = null;
 function openNotifsModal() {
   if (!notifModal) return;
+  markNotifAsked();
   lastNotifFocus = document.activeElement;
   notifModal.classList.add("active");
   if (notifOverlay) notifOverlay.classList.add("active");
