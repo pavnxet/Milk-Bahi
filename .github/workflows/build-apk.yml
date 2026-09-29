@@ -68,64 +68,49 @@ jobs:
           files: |
             android/app/build/outputs/apk/release/app-release.apk
 
-      # Verdict gate: the scan step above only returns analysis URLs
-      # (`<filename>=<analysisURL>`, comma separated) — no detection counts —
-      # so this step polls the VirusTotal API and fails the job ONLY on real
-      # detections (stats.malicious > 0). Scanner outages, missing keys, or
-      # still-queued analyses warn and pass so infra flakiness never blocks
-      # the release; check the step log for details.
+      # Verdict gate: fails the job ONLY on real detections
+      # (stats.malicious > 0 for the built APK's SHA256). Scanner outages,
+      # missing keys, or still-queued analyses warn and pass so infra
+      # flakiness never blocks the release; check the step log for details.
+      # NOTE: the scan step's `analysis` output is a GUI file-analysis URL,
+      # not an API id (basename would be the literal string "detection"),
+      # so this step hashes the APK itself and polls the file endpoint.
       - name: VirusTotal verdict gate
         if: always()
         env:
           VT_API_KEY: ${{ secrets.VT_API_KEY }}
-          VT_ANALYSIS: ${{ steps.virustotal.outputs.analysis }}
         run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
           if [ -z "$VT_API_KEY" ]; then
             echo "::notice::VT_API_KEY missing, skipping verdict gate."
             exit 0
           fi
-          if [ -z "$VT_ANALYSIS" ]; then
-            echo "::notice::No VirusTotal analysis output (scan step may have failed), skipping verdict gate."
+          if [ ! -f "$APK" ]; then
+            echo "::notice::APK not found at $APK, skipping verdict gate."
             exit 0
           fi
-          fail=0
-          IFS=',' read -ra pairs <<< "$VT_ANALYSIS"
-          for pair in "${pairs[@]}"; do
-            url="${pair##*=}"
-            id="$(basename "$url")"
-            echo "Checking analysis $id ..."
-            malicious=""
-            for i in $(seq 1 12); do
-              resp="$(curl -s --max-time 30 -H "x-apikey: $VT_API_KEY" \
-                "https://www.virustotal.com/api/v3/analyses/$id" || true)"
-              status="$(echo "$resp" | grep -o '"status":"[a-z]*"' | head -1 | cut -d'"' -f4)"
-              malicious="$(echo "$resp" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
-              if [ "$status" = "completed" ] && [ -n "$malicious" ]; then
-                break
-              fi
-              # Fallback: file-analysis URLs carry the file hash, not an
-              # analysis id — query the file endpoint for last stats instead.
-              fresp="$(curl -s --max-time 30 -H "x-apikey: $VT_API_KEY" \
-                "https://www.virustotal.com/api/v3/files/$id" || true)"
-              fmal="$(echo "$fresp" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
-              if [ -n "$fmal" ]; then
-                malicious="$fmal"
-                break
-              fi
-              echo "Attempt $i/12: status=${status:-unknown}, waiting 30s..."
-              sleep 30
-            done
-            if [ -z "$malicious" ]; then
-              echo "::warning::Could not determine verdict for $id, skipping."
-              continue
+          sha="$(sha256sum "$APK" | cut -d' ' -f1)"
+          echo "APK sha256: $sha"
+          malicious=""
+          for i in $(seq 1 12); do
+            resp="$(curl -s --max-time 30 -H "x-apikey: $VT_API_KEY" \
+              "https://www.virustotal.com/api/v3/files/$sha" || true)"
+            malicious="$(echo "$resp" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
+            if [ -n "$malicious" ]; then
+              break
             fi
-            echo "malicious=$malicious for $id"
-            if [ "$malicious" -gt 0 ]; then
-              echo "::error::VirusTotal reports $malicious malicious detection(s) for $id"
-              fail=1
-            fi
+            echo "Attempt $i/12: verdict not ready, waiting 30s..."
+            sleep 30
           done
-          exit $fail
+          if [ -z "$malicious" ]; then
+            echo "::warning::Could not determine verdict for $sha, skipping."
+            exit 0
+          fi
+          echo "malicious=$malicious for $sha"
+          if [ "$malicious" -gt 0 ]; then
+            echo "::error::VirusTotal reports $malicious malicious detection(s) for $sha"
+            exit 1
+          fi
 
       - name: Rename APK
         run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/Milk_Bahi_v${{ env.VERSION }}.apk
