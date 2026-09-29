@@ -2,6 +2,11 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      send_notification:
+        description: 'Ping installed apps about this release (adds a [notify] marker the app checks for)'
+        type: boolean
+        default: false
   push:
     branches:
       - milk-tracker-apk
@@ -128,6 +133,7 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}.${{ github.run_number }}
           name: Release v${{ env.VERSION }}.${{ github.run_number }}
+          body: "${{ inputs.send_notification && 'Update ready - install the APK below. Your app will show an update notification. [notify]' || 'New build - install the APK below. (No update notification sent for this one.)' }}"
           files: android/app/build/outputs/apk/release/Milk_Bahi_v${{ env.VERSION }}.apk
           draft: false
           prerelease: false

@@ -8,6 +8,8 @@ import {
   todayKey,
   isFutureKey,
   shouldPromptStar,
+  compareVersions,
+  shouldNotifyRelease,
 } from '../src/utils.js';
 import { generateCSVContent } from '../src/csvHelper.js';
 
@@ -169,5 +171,42 @@ describe('shouldPromptStar', () => {
     assert.equal(shouldPromptStar(6), true);
     assert.equal(shouldPromptStar(0), false);
     assert.equal(shouldPromptStar(NaN), false);
+  });
+});
+
+describe('compareVersions', () => {
+  it('orders dotted versions with run-number segments', () => {
+    assert.equal(compareVersions('v3.2.0.41', '3.2.0'), 1);
+    assert.equal(compareVersions('3.3.0', 'v3.2.0.41'), 1);
+    assert.equal(compareVersions('3.2.0', '3.2.0.0'), 0);
+    assert.equal(compareVersions('3.1.9', '3.2.0'), -1);
+  });
+});
+
+describe('shouldNotifyRelease', () => {
+  const marked = (tag) => ({ tag, body: 'Notes here.\n\n[notify]' });
+  it('notifies for a newer marked release', () => {
+    assert.deepEqual(
+      shouldNotifyRelease(marked('v3.3.0.42'), '3.2.0', ''),
+      { notify: true, version: 'v3.3.0.42' }
+    );
+  });
+  it('stays silent without the marker, for older tags, or repeat tags', () => {
+    assert.deepEqual(
+      shouldNotifyRelease({ tag: 'v3.3.0.42', body: 'no marker' }, '3.2.0', ''),
+      { notify: false }
+    );
+    assert.deepEqual(
+      shouldNotifyRelease(marked('v3.2.0.41'), '3.3.0', ''),
+      { notify: false }
+    );
+    assert.deepEqual(
+      shouldNotifyRelease(marked('v3.3.0.42'), '3.2.0', 'v3.3.0.42'),
+      { notify: false }
+    );
+    assert.deepEqual(
+      shouldNotifyRelease(marked('not-a-version'), '3.2.0', ''),
+      { notify: false }
+    );
   });
 });

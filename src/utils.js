@@ -135,3 +135,42 @@ export const STAR_PROMPT_EVERY = 3;
 export function shouldPromptStar(count) {
     return Number.isInteger(count) && count > 0 && count % STAR_PROMPT_EVERY === 0;
 }
+
+/**
+ * Numeric version compare for tags like "v3.2.0", "3.2.0.41" (release tags
+ * carry the Actions run number as a 4th segment). Missing segments count
+ * as 0. Returns 1 / 0 / -1.
+ */
+function verParts(v) {
+    return String(v || '').trim().replace(/^v/i, '').split('.').map((n) => {
+        const x = parseInt(n, 10);
+        return Number.isFinite(x) && x >= 0 ? x : 0;
+    });
+}
+export function compareVersions(a, b) {
+    const pa = verParts(a);
+    const pb = verParts(b);
+    const n = Math.max(pa.length, pb.length);
+    for (let i = 0; i < n; i++) {
+        const x = pa[i] || 0;
+        const y = pb[i] || 0;
+        if (x !== y) return x > y ? 1 : -1;
+    }
+    return 0;
+}
+
+/**
+ * Decides whether a GitHub release should ping the user. Manual control:
+ * the release body must contain a [notify] marker (added via the
+ * `send_notification` workflow input), the tag must be newer than both the
+ * installed version and the last notified tag.
+ */
+export function shouldNotifyRelease(release, currentVersion, lastNotifiedVersion) {
+    const tag = release && typeof release.tag === 'string' ? release.tag : '';
+    const body = release && typeof release.body === 'string' ? release.body : '';
+    if (!/^\s*v?\d+\.\d+\.\d+/.test(tag)) return { notify: false };
+    if (!/\[notify\]/i.test(body)) return { notify: false };
+    if (compareVersions(tag, currentVersion) <= 0) return { notify: false };
+    if (lastNotifiedVersion && compareVersions(tag, lastNotifiedVersion) <= 0) return { notify: false };
+    return { notify: true, version: tag };
+}

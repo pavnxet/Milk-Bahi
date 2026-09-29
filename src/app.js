@@ -5,12 +5,15 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
 import { generateCSVContent } from './csvHelper.js';
-import { calculateEntry, parseLocalDate, sanitizeFilename, sanitizeData, isShareDismissed, todayKey, isFutureKey, shouldPromptStar } from './utils.js';
+import { calculateEntry, parseLocalDate, sanitizeFilename, sanitizeData, isShareDismissed, todayKey, isFutureKey, shouldPromptStar, shouldNotifyRelease } from './utils.js';
 
 // --- Constants ---
+const APP_VERSION = "3.3.0";
 const REPO_URL = "https://github.com/pavnxet/Milk-Bahi";
 const RELEASES_URL = "https://github.com/pavnxet/Milk-Bahi/releases";
+const RELEASES_API = "https://api.github.com/repos/pavnxet/Milk-Bahi/releases/latest";
 const STAR_COUNT_KEY = "milk_tracker_star_prompt_count";
+const NOTIFIED_VERSION_KEY = "milk_tracker_notified_version";
 
 // --- Storage & settings ---
 const STORAGE_KEY = "milk_tracker_data";
@@ -183,6 +186,60 @@ async function init() {
         } catch (e) {
             console.error("Failed to re-schedule reminder on init", e);
         }
+    }
+    // Fire-and-forget: ping only when a release carries your [notify] marker.
+    checkForReleaseNotification();
+}
+
+// Checks the latest GitHub release and fires one local notification per
+// marked version. Silent on offline/API errors — never blocks startup.
+async function checkForReleaseNotification() {
+    try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 10000);
+        let rel;
+        try {
+            const res = await fetch(RELEASES_API, {
+                signal: ctrl.signal,
+                headers: { 'Accept': 'application/vnd.github+json' }
+            });
+            if (!res.ok) return;
+            rel = await res.json();
+        } finally {
+            clearTimeout(timer);
+        }
+        const last = localStorage.getItem(NOTIFIED_VERSION_KEY) || '';
+        const decision = shouldNotifyRelease(
+            { tag: rel.tag_name || '', body: rel.body || '' },
+            APP_VERSION,
+            last
+        );
+        if (!decision.notify) return;
+        localStorage.setItem(NOTIFIED_VERSION_KEY, decision.version);
+        try {
+            await LocalNotifications.createChannel({
+                id: 'app_updates',
+                name: 'App Updates',
+                description: 'New Milk Bahi releases',
+                importance: 4,
+                visibility: 1,
+                vibration: true
+            });
+        } catch (_) {
+            // Channel may already exist; continue to scheduling.
+        }
+        await LocalNotifications.schedule({
+            notifications: [{
+                id: 2,
+                title: 'Milk Bahi update available',
+                body: `${decision.version} is out — open Settings → Check for Updates to install it.`,
+                channelId: 'app_updates',
+                schedule: { at: new Date(Date.now() + 2000) },
+                extra: { url: RELEASES_URL }
+            }]
+        });
+    } catch (_) {
+        // Offline, API hiccup, or no permission: stay silent.
     }
 }
 

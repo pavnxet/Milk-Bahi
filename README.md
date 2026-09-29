@@ -51,3 +51,11 @@ To restore data later:
 - **Stack**: HTML, CSS, JavaScript (Vanilla).
 - **Framework**: Capacitor (Hybrid App).
 - **Build**: `npm run build` (uses esbuild) + GitHub Actions.
+
+## Why does Google call it "unsafe"?
+
+Short version: it isn't — Google flags **any** app installed outside the Play Store
+("unknown developer", no install reputation). The code is open, every release APK is
+[VirusTotal-scanned](https://www.virustotal.com) with 0 detections, and releases are
+built by GitHub Actions from this source. The only way to remove the warning entirely
+is publishing on Google Play (a $25 one-time developer account) — planned, not done yet.

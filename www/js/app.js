@@ -48702,6 +48702,32 @@ var STAR_PROMPT_EVERY = 3;
 function shouldPromptStar(count) {
   return Number.isInteger(count) && count > 0 && count % STAR_PROMPT_EVERY === 0;
 }
+function verParts(v3) {
+  return String(v3 || "").trim().replace(/^v/i, "").split(".").map((n2) => {
+    const x2 = parseInt(n2, 10);
+    return Number.isFinite(x2) && x2 >= 0 ? x2 : 0;
+  });
+}
+function compareVersions(a3, b2) {
+  const pa = verParts(a3);
+  const pb = verParts(b2);
+  const n2 = Math.max(pa.length, pb.length);
+  for (let i3 = 0; i3 < n2; i3++) {
+    const x2 = pa[i3] || 0;
+    const y3 = pb[i3] || 0;
+    if (x2 !== y3) return x2 > y3 ? 1 : -1;
+  }
+  return 0;
+}
+function shouldNotifyRelease(release, currentVersion, lastNotifiedVersion) {
+  const tag = release && typeof release.tag === "string" ? release.tag : "";
+  const body = release && typeof release.body === "string" ? release.body : "";
+  if (!/^\s*v?\d+\.\d+\.\d+/.test(tag)) return { notify: false };
+  if (!/\[notify\]/i.test(body)) return { notify: false };
+  if (compareVersions(tag, currentVersion) <= 0) return { notify: false };
+  if (lastNotifiedVersion && compareVersions(tag, lastNotifiedVersion) <= 0) return { notify: false };
+  return { notify: true, version: tag };
+}
 
 // src/csvHelper.js
 function generateCSVContent(entries2, currentCowPrice, currentBuffaloPrice) {
@@ -48720,9 +48746,12 @@ function generateCSVContent(entries2, currentCowPrice, currentBuffaloPrice) {
 }
 
 // src/app.js
+var APP_VERSION = "3.3.0";
 var REPO_URL = "https://github.com/pavnxet/Milk-Bahi";
 var RELEASES_URL = "https://github.com/pavnxet/Milk-Bahi/releases";
+var RELEASES_API = "https://api.github.com/repos/pavnxet/Milk-Bahi/releases/latest";
 var STAR_COUNT_KEY = "milk_tracker_star_prompt_count";
+var NOTIFIED_VERSION_KEY = "milk_tracker_notified_version";
 var STORAGE_KEY = "milk_tracker_data";
 var PRICE_COW_KEY = "milk_tracker_price_cow";
 var PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
@@ -48857,6 +48886,54 @@ async function init() {
     } catch (e2) {
       console.error("Failed to re-schedule reminder on init", e2);
     }
+  }
+  checkForReleaseNotification();
+}
+async function checkForReleaseNotification() {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1e4);
+    let rel;
+    try {
+      const res = await fetch(RELEASES_API, {
+        signal: ctrl.signal,
+        headers: { "Accept": "application/vnd.github+json" }
+      });
+      if (!res.ok) return;
+      rel = await res.json();
+    } finally {
+      clearTimeout(timer);
+    }
+    const last = localStorage.getItem(NOTIFIED_VERSION_KEY) || "";
+    const decision = shouldNotifyRelease(
+      { tag: rel.tag_name || "", body: rel.body || "" },
+      APP_VERSION,
+      last
+    );
+    if (!decision.notify) return;
+    localStorage.setItem(NOTIFIED_VERSION_KEY, decision.version);
+    try {
+      await LocalNotifications.createChannel({
+        id: "app_updates",
+        name: "App Updates",
+        description: "New Milk Bahi releases",
+        importance: 4,
+        visibility: 1,
+        vibration: true
+      });
+    } catch (_3) {
+    }
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: 2,
+        title: "Milk Bahi update available",
+        body: `${decision.version} is out \u2014 open Settings \u2192 Check for Updates to install it.`,
+        channelId: "app_updates",
+        schedule: { at: new Date(Date.now() + 2e3) },
+        extra: { url: RELEASES_URL }
+      }]
+    });
+  } catch (_3) {
   }
 }
 function showDashboard() {
