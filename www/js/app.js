@@ -1161,13 +1161,39 @@ var init_web2 = __esm({
   }
 });
 
-// node_modules/@capacitor/local-notifications/dist/esm/web.js
+// node_modules/@capacitor/toast/dist/esm/web.js
 var web_exports3 = {};
 __export(web_exports3, {
+  ToastWeb: () => ToastWeb
+});
+var ToastWeb;
+var init_web3 = __esm({
+  "node_modules/@capacitor/toast/dist/esm/web.js"() {
+    init_dist();
+    ToastWeb = class extends WebPlugin {
+      async show(options) {
+        if (typeof document !== "undefined") {
+          let duration = 2e3;
+          if (options.duration) {
+            duration = options.duration === "long" ? 3500 : 2e3;
+          }
+          const toast = document.createElement("pwa-toast");
+          toast.duration = duration;
+          toast.message = options.text;
+          document.body.appendChild(toast);
+        }
+      }
+    };
+  }
+});
+
+// node_modules/@capacitor/local-notifications/dist/esm/web.js
+var web_exports4 = {};
+__export(web_exports4, {
   LocalNotificationsWeb: () => LocalNotificationsWeb
 });
 var LocalNotificationsWeb;
-var init_web3 = __esm({
+var init_web4 = __esm({
   "node_modules/@capacitor/local-notifications/dist/esm/web.js"() {
     init_dist();
     LocalNotificationsWeb = class extends WebPlugin {
@@ -20674,6 +20700,12 @@ var Share = registerPlugin("Share", {
   web: () => Promise.resolve().then(() => (init_web2(), web_exports2)).then((m4) => new m4.ShareWeb())
 });
 
+// node_modules/@capacitor/toast/dist/esm/index.js
+init_dist();
+var Toast = registerPlugin("Toast", {
+  web: () => Promise.resolve().then(() => (init_web3(), web_exports3)).then((m4) => new m4.ToastWeb())
+});
+
 // node_modules/@capacitor/local-notifications/dist/esm/index.js
 init_dist();
 
@@ -20691,7 +20723,7 @@ var Weekday;
 
 // node_modules/@capacitor/local-notifications/dist/esm/index.js
 var LocalNotifications = registerPlugin("LocalNotifications", {
-  web: () => Promise.resolve().then(() => (init_web3(), web_exports3)).then((m4) => new m4.LocalNotificationsWeb())
+  web: () => Promise.resolve().then(() => (init_web4(), web_exports4)).then((m4) => new m4.LocalNotificationsWeb())
 });
 
 // node_modules/@kurkle/color/dist/color.esm.js
@@ -48587,21 +48619,98 @@ E.API.PDFObject = (function() {
   }, e2;
 })();
 
-// src/csvHelper.js
+// src/utils.js
+var DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+var TIME_RE = /^\d{2}:\d{2}$/;
+var MAX_ENTRY_VALUE = 1e7;
+var MAX_NOTE_LENGTH = 200;
+function parseLocalDate(s3) {
+  const parts = String(s3 ?? "").split("-");
+  if (parts.length !== 3) return /* @__PURE__ */ new Date(NaN);
+  const y3 = Number(parts[0]);
+  const m4 = Number(parts[1]);
+  const d2 = Number(parts[2]);
+  if (!Number.isInteger(y3) || !Number.isInteger(m4) || !Number.isInteger(d2)) return /* @__PURE__ */ new Date(NaN);
+  return new Date(y3, m4 - 1, d2);
+}
+function sanitizeFilename(s3) {
+  return String(s3 ?? "").replace(/[\/\\:, ]+/g, "_");
+}
+function isShareDismissed(err2) {
+  const msg = err2 && err2.message ? err2.message : String(err2 ?? "");
+  return /cancel/i.test(msg);
+}
 function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
-  const cow = val.cow || 0;
-  const buffalo = val.buffalo || 0;
-  const cowPrice = val.cowPrice !== void 0 ? val.cowPrice : defaultCowPrice;
-  const buffaloPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : defaultBuffaloPrice;
+  const src = val && typeof val === "object" ? val : {};
+  const cow = src.cow || 0;
+  const buffalo = src.buffalo || 0;
+  const cowPrice = src.cowPrice !== void 0 ? src.cowPrice : defaultCowPrice;
+  const buffaloPrice = src.buffaloPrice !== void 0 ? src.buffaloPrice : defaultBuffaloPrice;
   const cost = cow * cowPrice + buffalo * buffaloPrice;
   return { cow, buffalo, cowPrice, buffaloPrice, cost };
 }
+function isValidAmount(v3) {
+  return typeof v3 === "number" && Number.isFinite(v3) && v3 >= 0 && v3 < MAX_ENTRY_VALUE;
+}
+function sanitizeData(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+  const out = {};
+  for (const [key, raw] of Object.entries(data)) {
+    if (!DATE_KEY_RE.test(key)) continue;
+    const [ys, ms, ds] = key.split("-").map(Number);
+    const dt2 = new Date(ys, ms - 1, ds);
+    if (dt2.getFullYear() !== ys || dt2.getMonth() !== ms - 1 || dt2.getDate() !== ds) continue;
+    let entry = raw;
+    if (typeof entry === "number") {
+      if (!isValidAmount(entry)) continue;
+      entry = { cow: entry, buffalo: 0 };
+    } else if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      continue;
+    }
+    const clean = {};
+    let bad = false;
+    for (const f3 of ["cow", "buffalo", "cowPrice", "buffaloPrice"]) {
+      const v3 = entry[f3];
+      if (v3 === void 0) {
+        if (f3 === "cow" || f3 === "buffalo") clean[f3] = 0;
+        continue;
+      }
+      if (!isValidAmount(v3)) {
+        bad = true;
+        break;
+      }
+      clean[f3] = v3;
+    }
+    if (bad) continue;
+    if (typeof entry.note === "string" && entry.note.length > 0) {
+      clean.note = entry.note.slice(0, MAX_NOTE_LENGTH);
+    }
+    if (typeof entry.reminderTime === "string" && TIME_RE.test(entry.reminderTime)) {
+      clean.reminderTime = entry.reminderTime;
+    }
+    out[key] = clean;
+  }
+  return out;
+}
+function todayKey(d2 = /* @__PURE__ */ new Date()) {
+  return `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
+}
+function isFutureKey(key, today = todayKey()) {
+  return typeof key === "string" && key > today;
+}
+var STAR_PROMPT_EVERY = 3;
+function shouldPromptStar(count) {
+  return Number.isInteger(count) && count > 0 && count % STAR_PROMPT_EVERY === 0;
+}
+
+// src/csvHelper.js
 function generateCSVContent(entries2, currentCowPrice, currentBuffaloPrice) {
-  let csvContent = "Date,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
+  let csvContent = "\uFEFFDate,Cow (L),Buffalo (L),Cow Price,Buffalo Price,Cost (INR),Note\n";
   entries2.forEach(([date, val]) => {
     const result = calculateEntry(val, currentCowPrice, currentBuffaloPrice);
     let note = val.note || "";
-    if (note.includes(",") || note.includes("\n") || note.includes('"')) {
+    if (/^[=+\-@\t\r]/.test(note)) note = "'" + note;
+    if (/[\r\n",]/.test(note)) {
       note = `"${note.replace(/"/g, '""')}"`;
     }
     csvContent += `${date},${result.cow},${result.buffalo},${result.cowPrice},${result.buffaloPrice},${result.cost},${note}
@@ -48611,6 +48720,9 @@ function generateCSVContent(entries2, currentCowPrice, currentBuffaloPrice) {
 }
 
 // src/app.js
+var REPO_URL = "https://github.com/pavnxet/Milk-Bahi";
+var RELEASES_URL = "https://github.com/pavnxet/Milk-Bahi/releases";
+var STAR_COUNT_KEY = "milk_tracker_star_prompt_count";
 var STORAGE_KEY = "milk_tracker_data";
 var PRICE_COW_KEY = "milk_tracker_price_cow";
 var PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
@@ -48621,26 +48733,19 @@ var REMINDER_ENABLED_KEY = "milk_tracker_reminder_enabled";
 var REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 var DATA_FOLDER = "MilkTracker";
 var DATA_FILE = "data.json";
-function calculateEntry2(val, defaultCowPrice, defaultBuffaloPrice) {
-  const cow = val.cow || 0;
-  const buffalo = val.buffalo || 0;
-  const cowPrice = val.cowPrice !== void 0 ? val.cowPrice : defaultCowPrice;
-  const buffaloPrice = val.buffaloPrice !== void 0 ? val.buffaloPrice : defaultBuffaloPrice;
-  const cost = cow * cowPrice + buffalo * buffaloPrice;
-  return { cow, buffalo, cowPrice, buffaloPrice, cost };
-}
 function calculateTotals(entries2, defaultCowPrice, defaultBuffaloPrice) {
   let totalCow = 0;
   let totalBuff = 0;
   let totalCost = 0;
   entries2.forEach(([date, val]) => {
-    const result = calculateEntry2(val, defaultCowPrice, defaultBuffaloPrice);
+    const result = calculateEntry(val, defaultCowPrice, defaultBuffaloPrice);
     totalCow += result.cow;
     totalBuff += result.buffalo;
     totalCost += result.cost;
   });
   return { totalCow, totalBuff, totalCost };
 }
+var saveChain = Promise.resolve();
 var state = {
   data: {},
   // { "YYYY-MM-DD": { cow: float, buffalo: float, cowPrice: float, buffaloPrice: float } }
@@ -48736,6 +48841,7 @@ async function init() {
     reminderTimeInput.value = savedTime;
   }
   dateInput.value = state.currentDate;
+  dateInput.max = todayKey();
   priceCowInput.value = state.cowPrice;
   priceBuffaloInput.value = state.buffaloPrice;
   if (state.monthlyTarget > 0) monthlyTargetInput.value = state.monthlyTarget;
@@ -48744,6 +48850,14 @@ async function init() {
   analyticsEndDateInput.value = state.analyticsEnd;
   showDashboard();
   await loadData();
+  renderDate(parseLocalDate(state.currentDate));
+  if (state.reminderEnabled) {
+    try {
+      await scheduleNotification();
+    } catch (e2) {
+      console.error("Failed to re-schedule reminder on init", e2);
+    }
+  }
 }
 function showDashboard() {
   dashboard.classList.remove("hidden");
@@ -48787,43 +48901,61 @@ async function loadData() {
       directory: Directory.Documents,
       encoding: Encoding.UTF8
     });
-    state.data = JSON.parse(result.data);
+    const parsed = JSON.parse(result.data);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      state.data = {};
+    } else {
+      const hadLegacy = Object.values(parsed).some((v3) => typeof v3 === "number");
+      state.data = sanitizeData(parsed);
+      if (hadLegacy) await saveDataToDisk();
+    }
   } catch (e2) {
     console.log("FS Load failed, trying LS", e2);
     const localData = localStorage.getItem(STORAGE_KEY);
     if (localData) {
-      state.data = JSON.parse(localData);
-      saveDataToDisk();
-    }
-  }
-  for (const [date, val] of Object.entries(state.data)) {
-    if (typeof val === "number") {
-      state.data[date] = { cow: val, buffalo: 0 };
+      try {
+        const parsed = JSON.parse(localData);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const hadLegacy = Object.values(parsed).some((v3) => typeof v3 === "number");
+          state.data = sanitizeData(parsed);
+          if (hadLegacy) await saveDataToDisk();
+        } else {
+          state.data = {};
+        }
+      } catch (e22) {
+        console.error("LS Load failed (corrupt JSON), starting empty", e22);
+        state.data = {};
+      }
     }
   }
   const today = dateInput.value;
-  if (state.data[today]) {
-    currentCow = state.data[today].cow || 0;
-    currentBuff = state.data[today].buffalo || 0;
-    if (state.data[today].note) entryNoteInput.value = state.data[today].note;
-    updateDisplay();
-  }
-  checkAndShowCopyYesterday(today);
+  loadEditorForDate(today);
   renderSummary();
   renderFullHistory();
 }
-async function saveDataToDisk() {
+async function writeDataOnce() {
+  const payload = JSON.stringify(state.data);
   try {
     await Filesystem.writeFile({
       path: `${DATA_FOLDER}/${DATA_FILE}`,
-      data: JSON.stringify(state.data),
+      data: payload,
       directory: Directory.Documents,
       encoding: Encoding.UTF8
     });
   } catch (e2) {
     console.error("FS Save failed", e2);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
   }
+  try {
+    localStorage.setItem(STORAGE_KEY, payload);
+  } catch (e2) {
+    console.error("LS Save failed", e2);
+  }
+}
+function saveDataToDisk() {
+  const run = saveChain.then(writeDataOnce);
+  saveChain = run.catch(() => {
+  });
+  return run;
 }
 async function saveData(date, qty) {
   const entry = {
@@ -48840,6 +48972,9 @@ async function deleteEntry(date) {
   if (confirm(`Delete entry for ${date}?`)) {
     delete state.data[date];
     await saveDataToDisk();
+    if (dateInput.value === date) {
+      loadEditorForDate(dateInput.value);
+    }
     renderSummary();
     renderFullHistory();
   }
@@ -48851,24 +48986,34 @@ function updateDisplay() {
   qtyBuffDisplay.innerText = currentBuff.toFixed(1);
 }
 decCowBtn.addEventListener("click", () => {
-  if (currentCow > 0) currentCow -= 0.5;
+  currentCow = Math.max(0, Math.round((currentCow - 0.5) * 2) / 2);
   updateDisplay();
 });
 incCowBtn.addEventListener("click", () => {
-  currentCow += 0.5;
+  currentCow = Math.max(0, Math.round((currentCow + 0.5) * 2) / 2);
   updateDisplay();
 });
 decBuffBtn.addEventListener("click", () => {
-  if (currentBuff > 0) currentBuff -= 0.5;
+  currentBuff = Math.max(0, Math.round((currentBuff - 0.5) * 2) / 2);
   updateDisplay();
 });
 incBuffBtn.addEventListener("click", () => {
-  currentBuff += 0.5;
+  currentBuff = Math.max(0, Math.round((currentBuff + 0.5) * 2) / 2);
   updateDisplay();
 });
 saveBtn.addEventListener("click", async () => {
   const date = dateInput.value;
   if (!date) return alert("Please select a date");
+  if (isFutureKey(date)) {
+    try {
+      await Toast.show({ text: "Future entries are not allowed" });
+    } catch (_3) {
+      alert("Future entries are not allowed");
+    }
+    dateInput.value = todayKey();
+    loadEditorForDate(dateInput.value);
+    return;
+  }
   if (currentCow === 0 && currentBuff === 0) return alert("Please add some milk!");
   const note = entryNoteInput.value.trim();
   const entry = { cow: currentCow, buffalo: currentBuff };
@@ -48881,8 +49026,32 @@ function renderDate(date) {
   const options = { month: "long", year: "numeric" };
   currentMonthDisplay.innerText = date.toLocaleDateString("en-US", options);
 }
+function loadEditorForDate(dateStr) {
+  clampDateToToday(dateStr);
+  renderDate(parseLocalDate(dateInput.value));
+  const key = dateInput.value;
+  if (state.data[key]) {
+    const entry = state.data[key];
+    currentCow = entry.cow || 0;
+    currentBuff = entry.buffalo || 0;
+    entryNoteInput.value = entry.note || "";
+  } else {
+    currentCow = 0;
+    currentBuff = 0;
+    entryNoteInput.value = "";
+  }
+  checkAndShowCopyYesterday(key);
+  updateDisplay();
+  renderSummary();
+}
+function clampDateToToday(candidate) {
+  const today = todayKey();
+  dateInput.max = today;
+  const value = candidate !== void 0 ? candidate : dateInput.value;
+  if (value > today) dateInput.value = today;
+  nextDayBtn.disabled = dateInput.value >= today;
+}
 function getMonthData() {
-  const selectedDate = new Date(dateInput.value);
   const [year, month] = dateInput.value.split("-");
   const prefix = `${year}-${month}`;
   const entries2 = Object.entries(state.data).filter(([k2, v3]) => k2.startsWith(prefix));
@@ -48891,8 +49060,8 @@ function getMonthData() {
 function renderSummary() {
   const entries2 = getMonthData();
   const { totalCow, totalBuff, totalCost } = calculateTotals(entries2, state.cowPrice, state.buffaloPrice);
-  totalCowEl.innerText = `${totalCow}L`;
-  totalBuffaloEl.innerText = `${totalBuff}L`;
+  totalCowEl.innerText = `${totalCow.toFixed(1)}L`;
+  totalBuffaloEl.innerText = `${totalBuff.toFixed(1)}L`;
   totalCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
   if (state.monthlyTarget > 0) {
     goalSection.style.display = "block";
@@ -48905,109 +49074,141 @@ function renderSummary() {
   } else {
     goalSection.style.display = "none";
   }
+  totalCostEl.style.color = "";
+  if (state.monthlyBudget > 0) {
+    goalSection.style.display = "block";
+    const budgetLine = `Budget: Rs.${totalCost.toFixed(0)} / Rs.${state.monthlyBudget}`;
+    goalText.innerText = state.monthlyTarget > 0 ? `${goalText.innerText} \u2022 ${budgetLine}` : budgetLine;
+    if (totalCost > state.monthlyBudget) totalCostEl.style.color = "red";
+  }
 }
+var HISTORY_PAGE_SIZE = 60;
+var historyVisibleCount = HISTORY_PAGE_SIZE;
+function createHistoryItem(date, qty) {
+  const item = document.createElement("div");
+  item.className = "history-item";
+  item.style.alignItems = "center";
+  const dateSpan = document.createElement("span");
+  dateSpan.className = "history-date";
+  dateSpan.textContent = (/* @__PURE__ */ new Date(date + "T00:00:00")).toLocaleDateString();
+  const rightDiv = document.createElement("div");
+  rightDiv.style.display = "flex";
+  rightDiv.style.alignItems = "center";
+  rightDiv.style.gap = "10px";
+  const detailsDiv = document.createElement("div");
+  detailsDiv.style.display = "flex";
+  detailsDiv.style.flexDirection = "column";
+  detailsDiv.style.alignItems = "flex-end";
+  const amountSpan = document.createElement("span");
+  amountSpan.className = "history-amount";
+  const cowQty = qty.cow || 0;
+  const buffQty = qty.buffalo || 0;
+  let text2 = "";
+  if (cowQty > 0) text2 += `\u{1F404}${cowQty}L `;
+  if (buffQty > 0) text2 += `\u{1F403}${buffQty}L`;
+  if (text2 === "") text2 = "0L";
+  amountSpan.textContent = text2;
+  amountSpan.style.fontSize = "12px";
+  detailsDiv.appendChild(amountSpan);
+  if (qty.note) {
+    const noteSpan = document.createElement("span");
+    noteSpan.innerText = qty.note;
+    noteSpan.style.fontSize = "10px";
+    noteSpan.style.color = "var(--secondary-text)";
+    detailsDiv.appendChild(noteSpan);
+  }
+  const deleteBtn = document.createElement("button");
+  deleteBtn.innerHTML = "\u{1F5D1}\uFE0F";
+  deleteBtn.className = "icon-btn";
+  deleteBtn.style.padding = "4px";
+  deleteBtn.style.fontSize = "16px";
+  deleteBtn.onclick = (e2) => {
+    e2.stopPropagation();
+    deleteEntry(date);
+  };
+  rightDiv.appendChild(detailsDiv);
+  rightDiv.appendChild(deleteBtn);
+  item.appendChild(dateSpan);
+  item.appendChild(rightDiv);
+  return item;
+}
+function updateHistoryLoadMore(total) {
+  const btn = document.getElementById("history-load-more");
+  if (!btn) return;
+  btn.style.display = historyVisibleCount < total ? "block" : "none";
+}
+var historyDirty = false;
 function renderFullHistory() {
+  const tabHistory = document.getElementById("tab-history");
+  if (tabHistory && !tabHistory.classList.contains("active")) {
+    historyDirty = true;
+    return;
+  }
+  historyDirty = false;
+  historyVisibleCount = HISTORY_PAGE_SIZE;
   const entries2 = Object.entries(state.data).sort((a3, b2) => b2[0].localeCompare(a3[0]));
   historyListEl.innerHTML = "";
   const fragment = document.createDocumentFragment();
-  entries2.forEach(([date, qty]) => {
-    const item = document.createElement("div");
-    item.className = "history-item";
-    item.style.alignItems = "center";
-    const dateSpan = document.createElement("span");
-    dateSpan.className = "history-date";
-    dateSpan.textContent = (/* @__PURE__ */ new Date(date + "T00:00:00")).toLocaleDateString();
-    const rightDiv = document.createElement("div");
-    rightDiv.style.display = "flex";
-    rightDiv.style.alignItems = "center";
-    rightDiv.style.gap = "10px";
-    const detailsDiv = document.createElement("div");
-    detailsDiv.style.display = "flex";
-    detailsDiv.style.flexDirection = "column";
-    detailsDiv.style.alignItems = "flex-end";
-    const amountSpan = document.createElement("span");
-    amountSpan.className = "history-amount";
-    const cowQty = qty.cow || 0;
-    const buffQty = qty.buffalo || 0;
-    let text2 = "";
-    if (cowQty > 0) text2 += `\u{1F404}${cowQty}L `;
-    if (buffQty > 0) text2 += `\u{1F403}${buffQty}L`;
-    if (text2 === "") text2 = "0L";
-    amountSpan.textContent = text2;
-    amountSpan.style.fontSize = "12px";
-    detailsDiv.appendChild(amountSpan);
-    if (qty.note) {
-      const noteSpan = document.createElement("span");
-      noteSpan.innerText = qty.note;
-      noteSpan.style.fontSize = "10px";
-      noteSpan.style.color = "var(--secondary-text)";
-      detailsDiv.appendChild(noteSpan);
-    }
-    const deleteBtn = document.createElement("button");
-    deleteBtn.innerHTML = "\u{1F5D1}\uFE0F";
-    deleteBtn.className = "icon-btn";
-    deleteBtn.style.padding = "4px";
-    deleteBtn.style.fontSize = "16px";
-    deleteBtn.onclick = (e2) => {
-      e2.stopPropagation();
-      deleteEntry(date);
-    };
-    rightDiv.appendChild(detailsDiv);
-    rightDiv.appendChild(deleteBtn);
-    item.appendChild(dateSpan);
-    item.appendChild(rightDiv);
-    fragment.appendChild(item);
+  entries2.slice(0, historyVisibleCount).forEach(([date, qty]) => {
+    fragment.appendChild(createHistoryItem(date, qty));
   });
   historyListEl.appendChild(fragment);
+  updateHistoryLoadMore(entries2.length);
 }
 dateInput.addEventListener("change", () => {
-  const date = dateInput.value;
-  renderDate(/* @__PURE__ */ new Date(date + "T00:00:00"));
-  if (state.data[date]) {
-    const entry = state.data[date];
-    currentCow = entry.cow || 0;
-    currentBuff = entry.buffalo || 0;
-    entryNoteInput.value = entry.note || "";
-  } else {
-    currentCow = 0;
-    currentBuff = 0;
-    entryNoteInput.value = "";
-  }
-  checkAndShowCopyYesterday(date);
-  updateDisplay();
-  renderSummary();
+  loadEditorForDate(dateInput.value);
 });
 prevDayBtn.addEventListener("click", () => {
   const d2 = new Date(dateInput.value);
   d2.setUTCDate(d2.getUTCDate() - 1);
   dateInput.value = d2.toISOString().split("T")[0];
-  dateInput.dispatchEvent(new Event("change"));
+  loadEditorForDate(dateInput.value);
 });
 nextDayBtn.addEventListener("click", () => {
   const d2 = new Date(dateInput.value);
   d2.setUTCDate(d2.getUTCDate() + 1);
   dateInput.value = d2.toISOString().split("T")[0];
-  dateInput.dispatchEvent(new Event("change"));
+  loadEditorForDate(dateInput.value);
 });
-settingsBtn.addEventListener("click", () => settingsModal.classList.add("active"));
-closeSettingsBtn.addEventListener("click", () => settingsModal.classList.remove("active"));
+settingsBtn.addEventListener("click", () => openSettings());
+closeSettingsBtn.addEventListener("click", () => closeSettings());
 priceCowInput.addEventListener("change", (e2) => {
-  state.cowPrice = parseFloat(e2.target.value);
+  const v3 = parseFloat(e2.target.value);
+  if (Number.isNaN(v3)) {
+    e2.target.value = state.cowPrice;
+    return;
+  }
+  state.cowPrice = v3;
   localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
   renderSummary();
 });
 priceBuffaloInput.addEventListener("change", (e2) => {
-  state.buffaloPrice = parseFloat(e2.target.value);
+  const v3 = parseFloat(e2.target.value);
+  if (Number.isNaN(v3)) {
+    e2.target.value = state.buffaloPrice;
+    return;
+  }
+  state.buffaloPrice = v3;
   localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
   renderSummary();
 });
 monthlyTargetInput.addEventListener("change", (e2) => {
-  state.monthlyTarget = parseFloat(e2.target.value) || 0;
+  const v3 = parseFloat(e2.target.value);
+  if (Number.isNaN(v3)) {
+    e2.target.value = state.monthlyTarget || "";
+    return;
+  }
+  state.monthlyTarget = v3 || 0;
   localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
   renderSummary();
 });
 monthlyBudgetInput.addEventListener("change", (e2) => {
-  state.monthlyBudget = parseFloat(e2.target.value) || 0;
+  const v3 = parseFloat(e2.target.value);
+  if (Number.isNaN(v3)) {
+    e2.target.value = state.monthlyBudget || "";
+    return;
+  }
+  state.monthlyBudget = v3 || 0;
   localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
   renderSummary();
 });
@@ -49078,6 +49279,9 @@ reminderTimeInput.addEventListener("change", async (e2) => {
   }
 });
 backupBtn.addEventListener("click", async () => {
+  const d2 = /* @__PURE__ */ new Date();
+  const todayKey2 = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
+  const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey2}.json`);
   try {
     const backupObject = {
       version: 1,
@@ -49094,7 +49298,6 @@ backupBtn.addEventListener("click", async () => {
       data: state.data
     };
     const dataStr = JSON.stringify(backupObject, null, 2);
-    const fileName = `milk-tracker-backup-${state.currentDate}.json`;
     const result = await Filesystem.writeFile({
       path: fileName,
       data: dataStr,
@@ -49108,7 +49311,13 @@ backupBtn.addEventListener("click", async () => {
       url: result.uri,
       dialogTitle: "Save Backup"
     });
+    try {
+      await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
+    } catch (cleanupErr) {
+      console.warn("Backup temp cleanup failed", cleanupErr);
+    }
   } catch (e2) {
+    if (isShareDismissed(e2)) return;
     console.error("Backup failed", e2);
     const backupObject = {
       version: 1,
@@ -49129,7 +49338,7 @@ backupBtn.addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const a3 = document.createElement("a");
     a3.href = url;
-    a3.download = `milk-tracker-backup-${state.currentDate}.json`;
+    a3.download = fileName;
     document.body.appendChild(a3);
     a3.click();
     document.body.removeChild(a3);
@@ -49146,99 +49355,104 @@ restoreInput.addEventListener("change", (e2) => {
   reader.onload = async (event) => {
     try {
       const imported = JSON.parse(event.target.result);
-      if (!imported || typeof imported !== "object") throw new Error("Invalid JSON");
-      if (confirm("This will overwrite your current local data. Are you sure?")) {
-        let newData = {};
-        if (imported.data && imported.settings) {
-          if (typeof imported.data !== "object") throw new Error("Invalid Data format");
-          const sanitizedData = {};
-          for (const [key, val] of Object.entries(imported.data)) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
-            if (typeof val !== "object") continue;
-            const entry = {
-              cow: typeof val.cow === "number" ? val.cow : 0,
-              buffalo: typeof val.buffalo === "number" ? val.buffalo : 0,
-              cowPrice: typeof val.cowPrice === "number" ? val.cowPrice : void 0,
-              buffaloPrice: typeof val.buffaloPrice === "number" ? val.buffaloPrice : void 0
-            };
-            if (typeof val.note === "string") entry.note = val.note;
-            sanitizedData[key] = entry;
-          }
-          newData = sanitizedData;
-          if (typeof imported.settings.cowPrice === "number") {
-            state.cowPrice = imported.settings.cowPrice;
-            localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
-            priceCowInput.value = state.cowPrice;
-          }
-          if (typeof imported.settings.buffaloPrice === "number") {
-            state.buffaloPrice = imported.settings.buffaloPrice;
-            localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
-            priceBuffaloInput.value = state.buffaloPrice;
-          }
-          if (typeof imported.settings.monthlyTarget === "number") {
-            state.monthlyTarget = imported.settings.monthlyTarget;
-            localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
-            monthlyTargetInput.value = state.monthlyTarget;
-          }
-          if (typeof imported.settings.monthlyBudget === "number") {
-            state.monthlyBudget = imported.settings.monthlyBudget;
-            localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
-            monthlyBudgetInput.value = state.monthlyBudget;
-          }
-          if (typeof imported.settings.isDark === "boolean") {
-            state.isDark = imported.settings.isDark;
-            document.body.setAttribute("data-theme", state.isDark ? "dark" : "light");
-            localStorage.setItem(THEME_KEY, state.isDark ? "dark" : "light");
-            themeToggle.checked = state.isDark;
-          }
-          if (typeof imported.settings.reminderEnabled === "boolean") {
-            state.reminderEnabled = imported.settings.reminderEnabled;
-            localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
-            reminderToggle.checked = state.reminderEnabled;
-            reminderTimeInput.style.display = state.reminderEnabled ? "block" : "none";
-          }
-          if (typeof imported.settings.reminderTime === "string") {
-            state.reminderTime = imported.settings.reminderTime;
-            localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
-            reminderTimeInput.value = state.reminderTime;
-          }
-          if (state.reminderEnabled) await scheduleNotification();
-          else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
-        } else {
-          const sanitizedData = {};
-          for (const [key, val] of Object.entries(imported)) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
-            if (typeof val === "number") {
-              sanitizedData[key] = { cow: val, buffalo: 0 };
-            } else if (typeof val === "object") {
-              sanitizedData[key] = {
-                cow: typeof val.cow === "number" ? val.cow : 0,
-                buffalo: typeof val.buffalo === "number" ? val.buffalo : 0
-              };
-            }
-          }
-          newData = sanitizedData;
+      if (!imported || typeof imported !== "object" || Array.isArray(imported)) throw new Error("Invalid JSON");
+      const isNewFormat = "data" in imported || "settings" in imported;
+      let newData = {};
+      if (isNewFormat) {
+        if (!imported.data || typeof imported.data !== "object" || Array.isArray(imported.data)) {
+          throw new Error("Invalid Data format");
         }
-        state.data = newData;
-        await saveDataToDisk();
-        alert("Data and settings restored successfully!");
-        renderSummary();
-        renderFullHistory();
+        newData = sanitizeData(imported.data);
+      } else {
+        newData = sanitizeData(imported);
       }
+      const incomingCount = Object.keys(newData).length;
+      const currentCount = Object.keys(state.data).length;
+      const backupDate = imported.timestamp ? new Date(imported.timestamp).toLocaleString() : "unknown date";
+      if (incomingCount === 0 && currentCount > 0) {
+        const wipe = confirm(`Backup from ${backupDate} has 0 valid entries (you currently have ${currentCount}). Restoring would ERASE all current data. Really wipe and restore?`);
+        if (!wipe) {
+          restoreInput.value = "";
+          return;
+        }
+      }
+      if (!confirm(`Restore backup from ${backupDate}? It has ${incomingCount} entries (you currently have ${currentCount}). This will overwrite your current local data. Are you sure?`)) {
+        restoreInput.value = "";
+        return;
+      }
+      if (isNewFormat) {
+        if (typeof imported.settings?.cowPrice === "number") {
+          state.cowPrice = imported.settings.cowPrice;
+          localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+          priceCowInput.value = state.cowPrice;
+        }
+        if (typeof imported.settings?.buffaloPrice === "number") {
+          state.buffaloPrice = imported.settings.buffaloPrice;
+          localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
+          priceBuffaloInput.value = state.buffaloPrice;
+        }
+        if (typeof imported.settings?.monthlyTarget === "number") {
+          state.monthlyTarget = imported.settings.monthlyTarget;
+          localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
+          monthlyTargetInput.value = state.monthlyTarget;
+        }
+        if (typeof imported.settings?.monthlyBudget === "number") {
+          state.monthlyBudget = imported.settings.monthlyBudget;
+          localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
+          monthlyBudgetInput.value = state.monthlyBudget;
+        }
+        if (typeof imported.settings?.isDark === "boolean") {
+          state.isDark = imported.settings.isDark;
+          document.body.setAttribute("data-theme", state.isDark ? "dark" : "light");
+          localStorage.setItem(THEME_KEY, state.isDark ? "dark" : "light");
+          themeToggle.checked = state.isDark;
+        }
+        if (typeof imported.settings?.reminderEnabled === "boolean") {
+          state.reminderEnabled = imported.settings.reminderEnabled;
+          localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+          reminderToggle.checked = state.reminderEnabled;
+          reminderTimeInput.style.display = state.reminderEnabled ? "block" : "none";
+        }
+        if (typeof imported.settings?.reminderTime === "string") {
+          state.reminderTime = imported.settings.reminderTime;
+          localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+          reminderTimeInput.value = state.reminderTime;
+        }
+        if (state.reminderEnabled) await scheduleNotification();
+        else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+      }
+      state.data = newData;
+      await saveDataToDisk();
+      alert("Data and settings restored successfully!");
+      loadEditorForDate(dateInput.value);
+      renderSummary();
+      renderFullHistory();
     } catch (err2) {
       alert("Error reading file. Is it a valid backup?");
       console.error(err2);
+    } finally {
+      restoreInput.value = "";
     }
   };
   reader.readAsText(file);
+  restoreInput.value = "";
 });
 whatsappFab.addEventListener("click", () => {
   const entries2 = getMonthData();
   const { totalCow, totalBuff, totalCost } = calculateTotals(entries2, state.cowPrice, state.buffaloPrice);
   const [year, month] = dateInput.value.split("-");
   const monthName = new Date(dateInput.value).toLocaleString("default", { month: "long" });
-  const text2 = `*Milk Report for ${monthName} ${year}* \u{1F95B}%0A---------------------------%0ACow Milk: ${totalCow.toFixed(1)} L%0ABuffalo Milk: ${totalBuff.toFixed(1)} L%0ATotal Cost: \u20B9${totalCost.toFixed(0)}%0A---------------------------%0AShared from Milk Bahi%0AMade with \u2764\uFE0F by Pavneet`;
-  window.open(`https://wa.me/?text=${text2}`, "_blank");
+  const text2 = `*Milk Report for ${monthName} ${year}* \u{1F95B}
+---------------------------
+Cow Milk: ${totalCow.toFixed(1)} L
+Buffalo Milk: ${totalBuff.toFixed(1)} L
+Total Cost: \u20B9${totalCost.toFixed(0)}
+---------------------------
+Shared from Milk Bahi
+Made with \u2764\uFE0F by Pavneet
+Get the app: ${RELEASES_URL}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text2)}`, "_blank");
+  recordShare();
 });
 var navItems = document.querySelectorAll(".nav-item");
 var tabContents = document.querySelectorAll(".tab-content");
@@ -49255,6 +49469,7 @@ navItems.forEach((item) => {
       }
     });
     if (targetId === "tab-analytics") renderAnalytics();
+    if (targetId === "tab-history" && historyDirty) renderFullHistory();
   });
 });
 var analyticsCharts = {};
@@ -49266,10 +49481,14 @@ analyticsFilterBtn.addEventListener("click", () => {
 exportPdfBtn.addEventListener("click", exportToPDF);
 exportCsvBtn.addEventListener("click", exportToCSV);
 function filterDataByDateRange(data, startStr, endStr) {
-  const start = new Date(startStr);
-  const end = new Date(endStr);
+  const start = parseLocalDate(startStr);
+  const end = parseLocalDate(endStr);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    alert("Please pick a valid date range (start must be on or before end).");
+    return [];
+  }
   return Object.entries(data).filter(([dateStr, val]) => {
-    const d2 = new Date(dateStr);
+    const d2 = parseLocalDate(dateStr);
     return d2 >= start && d2 <= end;
   }).sort((a3, b2) => a3[0].localeCompare(b2[0]));
 }
@@ -49295,7 +49514,7 @@ function renderAnalytics() {
     const dateKey = `${d2.getFullYear()}-${String(d2.getMonth() + 1).padStart(2, "0")}-${String(d2.getDate()).padStart(2, "0")}`;
     const existing = state.data[dateKey];
     if (existing) {
-      const result = calculateEntry2(existing, state.cowPrice, state.buffaloPrice);
+      const result = calculateEntry(existing, state.cowPrice, state.buffaloPrice);
       totalCow += result.cow;
       totalBuff += result.buffalo;
       totalCost += result.cost;
@@ -49326,6 +49545,9 @@ function renderAnalytics() {
   anaAvgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
   anaProjCostEl.innerText = `\u20B9${totalCost.toFixed(0)}`;
   anaProjCostEl.style.color = "var(--text-color)";
+  if (state.monthlyBudget > 0 && daysCount > 0 && totalCost > state.monthlyBudget * (daysCount / 30)) {
+    anaProjCostEl.style.color = "red";
+  }
   const peak = calculatePeakDay(entries2);
   if (peak) {
     peakDaysEl.innerText = `Max: ${peak.maxMilk}L (${new Date(peak.maxDate).getDate()}/${new Date(peak.maxDate).getMonth() + 1})`;
@@ -49435,7 +49657,7 @@ async function exportToCSV() {
   if (entries2.length === 0) return alert("No data to export");
   const csvContent = generateCSVContent(entries2, state.cowPrice, state.buffaloPrice);
   try {
-    const fileName = `Milk_Report_${label.replace(/ /g, "_")}_${Date.now()}.csv`;
+    const fileName = sanitizeFilename(`Milk_Report_${label}_${Date.now()}.csv`);
     const result = await Filesystem.writeFile({
       path: fileName,
       data: csvContent,
@@ -49446,26 +49668,35 @@ async function exportToCSV() {
       title: "Milk Report CSV",
       url: result.uri
     });
+    recordShare();
+    try {
+      await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
+    } catch (cleanupErr) {
+      console.warn("CSV temp cleanup failed", cleanupErr);
+    }
   } catch (e2) {
+    if (isShareDismissed(e2)) return;
     console.error("CSV Export Failed", e2);
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `milk_report_${label.replace(/ /g, "_")}.csv`);
+    link.setAttribute("download", sanitizeFilename(`milk_report_${label}.csv`));
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 }
 async function exportToPDF() {
   const { entries: entries2, label } = getFilteredDataForAnalytics();
   if (entries2.length === 0) return alert("No data to export");
   const doc = new E();
+  const pdfSafeText = (s3) => String(s3 ?? "").replace(/₹/g, "Rs.").replace(/[^\x20-\x7E\xA0-\xFF]/g, " ");
   doc.setFontSize(18);
-  doc.text(`Milk Report`, 14, 22);
+  doc.text(pdfSafeText(`Milk Report`), 14, 22);
   doc.setFontSize(12);
-  doc.text(label, 14, 28);
+  doc.text(pdfSafeText(label), 14, 28);
   const printHeader = (yPos) => {
     doc.setFontSize(10);
     doc.setTextColor(0);
@@ -49487,19 +49718,29 @@ async function exportToPDF() {
       printHeader(y3);
       y3 += 8;
     }
-    const result = calculateEntry2(val, state.cowPrice, state.buffaloPrice);
+    const result = calculateEntry(val, state.cowPrice, state.buffaloPrice);
     totalCow += result.cow;
     totalBuff += result.buffalo;
     totalCost += result.cost;
-    doc.text(date, 14, y3);
-    doc.text(result.cow.toString(), 50, y3);
-    doc.text(result.buffalo.toString(), 70, y3);
-    doc.text(result.cost.toFixed(0), 90, y3);
+    doc.text(pdfSafeText(date), 14, y3);
+    doc.text(pdfSafeText(result.cow.toString()), 50, y3);
+    doc.text(pdfSafeText(result.buffalo.toString()), 70, y3);
+    doc.text(pdfSafeText(result.cost.toFixed(0)), 90, y3);
     if (val.note) {
-      const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + "..." : val.note;
-      doc.text(cleanNote, 120, y3);
+      const lines = doc.splitTextToSize(pdfSafeText(val.note), 80);
+      for (const line of lines) {
+        if (y3 > 270) {
+          doc.addPage();
+          y3 = 20;
+          printHeader(y3);
+          y3 += 8;
+        }
+        doc.text(line, 120, y3);
+        y3 += 7;
+      }
+    } else {
+      y3 += 7;
     }
-    y3 += 7;
   });
   if (y3 > 250) {
     doc.addPage();
@@ -49513,16 +49754,30 @@ async function exportToPDF() {
   doc.text("Summary", 14, y3);
   y3 += 8;
   doc.setFontSize(12);
-  doc.text(`Total Cow Milk: ${totalCow.toFixed(1)} L`, 14, y3);
+  doc.text(pdfSafeText(`Total Cow Milk: ${totalCow.toFixed(1)} L`), 14, y3);
   y3 += 6;
-  doc.text(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`, 14, y3);
+  doc.text(pdfSafeText(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`), 14, y3);
   y3 += 6;
   doc.setFontSize(14);
   doc.setTextColor(255, 0, 0);
-  doc.text(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`, 14, y3);
+  doc.text(pdfSafeText(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`), 14, y3);
+  y3 += 8;
+  if (y3 > 260) {
+    doc.addPage();
+    y3 = 20;
+  }
+  doc.setFontSize(11);
+  doc.setTextColor(0, 0, 255);
+  doc.textWithLink("Get the Milk Bahi app:", 14, y3, { url: RELEASES_URL });
+  y3 += 6;
+  doc.textWithLink(RELEASES_URL, 14, y3, { url: RELEASES_URL });
   try {
-    const base64Data = doc.output("datauristring").split(",")[1];
-    const fileName = `Milk_Report_${Date.now()}.pdf`;
+    const dataUri = doc.output("datauristring");
+    const marker = ";base64,";
+    const markerIdx = dataUri.indexOf(marker);
+    if (markerIdx === -1) throw new Error("PDF encoding failed: no base64 payload");
+    const base64Data = dataUri.slice(markerIdx + marker.length);
+    const fileName = sanitizeFilename(`Milk_Report_${label}_${Date.now()}.pdf`);
     const result = await Filesystem.writeFile({
       path: fileName,
       data: base64Data,
@@ -49532,9 +49787,16 @@ async function exportToPDF() {
       title: "Milk Report PDF",
       url: result.uri
     });
+    recordShare();
+    try {
+      await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
+    } catch (cleanupErr) {
+      console.warn("PDF temp cleanup failed", cleanupErr);
+    }
   } catch (e2) {
+    if (isShareDismissed(e2)) return;
     console.error("PDF Export Failed", e2);
-    doc.save(`milk_report.pdf`);
+    doc.save(sanitizeFilename(`milk_report_${label}.pdf`));
   }
 }
 init();
@@ -49609,8 +49871,110 @@ if (shareAppBtn) {
     }
   });
 }
+var settingsOverlay = document.getElementById("settings-overlay");
+var settingsDialog = settingsModal ? settingsModal.querySelector(".modal-content") : null;
+var lastSettingsFocus = null;
+function openSettings() {
+  lastSettingsFocus = document.activeElement;
+  settingsModal.classList.add("active");
+  if (settingsOverlay) settingsOverlay.classList.add("active");
+  if (settingsDialog && typeof settingsDialog.focus === "function") {
+    settingsDialog.focus();
+  } else if (closeSettingsBtn && typeof closeSettingsBtn.focus === "function") {
+    closeSettingsBtn.focus();
+  }
+}
+function closeSettings() {
+  settingsModal.classList.remove("active");
+  if (settingsOverlay) settingsOverlay.classList.remove("active");
+  const target = lastSettingsFocus && document.contains(lastSettingsFocus) ? lastSettingsFocus : settingsBtn;
+  if (target && typeof target.focus === "function") target.focus();
+  lastSettingsFocus = null;
+}
+if (settingsOverlay) {
+  settingsOverlay.addEventListener("click", () => closeSettings());
+}
+settingsModal.addEventListener("click", (e2) => {
+  if (e2.target === settingsModal) closeSettings();
+});
+document.addEventListener("keydown", (e2) => {
+  if (e2.key !== "Escape") return;
+  if (starModal && starModal.classList.contains("active")) {
+    closeStarModal();
+  } else if (settingsModal.classList.contains("active")) {
+    closeSettings();
+  } else if (sidebar && sidebar.classList.contains("active")) {
+    closeSidebar();
+  }
+});
+var historyLoadMoreBtn = document.getElementById("history-load-more");
+if (historyLoadMoreBtn) {
+  historyLoadMoreBtn.addEventListener("click", () => {
+    const entries2 = Object.entries(state.data).sort((a3, b2) => b2[0].localeCompare(a3[0]));
+    historyVisibleCount += HISTORY_PAGE_SIZE;
+    const next = entries2.slice(historyVisibleCount - HISTORY_PAGE_SIZE, historyVisibleCount);
+    const fragment = document.createDocumentFragment();
+    next.forEach(([date, qty]) => {
+      fragment.appendChild(createHistoryItem(date, qty));
+    });
+    historyListEl.appendChild(fragment);
+    updateHistoryLoadMore(entries2.length);
+  });
+}
+var starModal = document.getElementById("star-modal");
+var starOverlay = document.getElementById("star-overlay");
+var starDialog = starModal ? starModal.querySelector(".modal-content") : null;
+var closeStarBtn = document.getElementById("close-star");
+var laterStarBtn = document.getElementById("later-star-btn");
+var openRepoBtn = document.getElementById("open-repo-btn");
+var starBtn = document.getElementById("star-btn");
+var lastStarFocus = null;
+function openStarModal() {
+  if (!starModal) return;
+  lastStarFocus = document.activeElement;
+  starModal.classList.add("active");
+  if (starOverlay) starOverlay.classList.add("active");
+  if (starDialog && typeof starDialog.focus === "function") starDialog.focus();
+}
+function closeStarModal() {
+  if (!starModal) return;
+  starModal.classList.remove("active");
+  if (starOverlay) starOverlay.classList.remove("active");
+  const target = lastStarFocus && document.contains(lastStarFocus) ? lastStarFocus : starBtn;
+  if (target && typeof target.focus === "function") target.focus();
+  lastStarFocus = null;
+}
+function recordShare() {
+  let count = 0;
+  try {
+    count = parseInt(localStorage.getItem(STAR_COUNT_KEY) || "0", 10) || 0;
+    count += 1;
+    localStorage.setItem(STAR_COUNT_KEY, String(count));
+  } catch (_3) {
+    return;
+  }
+  if (shouldPromptStar(count)) openStarModal();
+}
+if (closeStarBtn) closeStarBtn.addEventListener("click", () => closeStarModal());
+if (laterStarBtn) laterStarBtn.addEventListener("click", () => closeStarModal());
+if (starOverlay) starOverlay.addEventListener("click", () => closeStarModal());
+if (starModal) {
+  starModal.addEventListener("click", (e2) => {
+    if (e2.target === starModal) closeStarModal();
+  });
+}
+if (openRepoBtn) {
+  openRepoBtn.addEventListener("click", () => {
+    window.open(REPO_URL, "_blank");
+    closeStarModal();
+  });
+}
+if (starBtn) {
+  starBtn.addEventListener("click", () => openStarModal());
+}
 export {
-  calculatePeakDay
+  calculatePeakDay,
+  renderDate
 };
 /*! Bundled license information:
 
@@ -49625,10 +49989,10 @@ html2canvas/dist/html2canvas.js:
    *)
   (*! *****************************************************************************
       Copyright (c) Microsoft Corporation.
-
+  
       Permission to use, copy, modify, and/or distribute this software for any
       purpose with or without fee is hereby granted.
-
+  
       THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
       REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
       AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
@@ -49644,10 +50008,10 @@ dompurify/dist/purify.es.mjs:
 svg-pathdata/lib/SVGPathData.module.js:
   (*! *****************************************************************************
   Copyright (c) Microsoft Corporation.
-
+  
   Permission to use, copy, modify, and/or distribute this software for any
   purpose with or without fee is hereby granted.
-
+  
   THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
   REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY
   AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
@@ -49765,26 +50129,26 @@ jspdf/dist/jspdf.es.min.js:
    * @license
     Copyright (c) 2008, Adobe Systems Incorporated
     All rights reserved.
-
-    Redistribution and use in source and binary forms, with or without
+  
+    Redistribution and use in source and binary forms, with or without 
     modification, are permitted provided that the following conditions are
     met:
-
-    * Redistributions of source code must retain the above copyright notice,
+  
+    * Redistributions of source code must retain the above copyright notice, 
       this list of conditions and the following disclaimer.
-
+    
     * Redistributions in binary form must reproduce the above copyright
-      notice, this list of conditions and the following disclaimer in the
+      notice, this list of conditions and the following disclaimer in the 
       documentation and/or other materials provided with the distribution.
-
-    * Neither the name of Adobe Systems Incorporated nor the names of its
-      contributors may be used to endorse or promote products derived from
+    
+    * Neither the name of Adobe Systems Incorporated nor the names of its 
+      contributors may be used to endorse or promote products derived from 
       this software without specific prior written permission.
-
+  
     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
     IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
     THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-    PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+    PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR 
     CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
     EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
     PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR

@@ -19,10 +19,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Get version from package.json
         id: pkg_version
@@ -60,16 +60,78 @@ jobs:
             -Pandroid.injected.signing.key.password=$KEY_PASSWORD
 
       - name: VirusTotal Scan
+        id: virustotal
+        continue-on-error: true
         uses: crazy-max/ghaction-virustotal@v4
         with:
           vt_api_key: ${{ secrets.VT_API_KEY }}
           files: |
             android/app/build/outputs/apk/release/app-release.apk
 
+      # Verdict gate: the scan step above only returns analysis URLs
+      # (`<filename>=<analysisURL>`, comma separated) — no detection counts —
+      # so this step polls the VirusTotal API and fails the job ONLY on real
+      # detections (stats.malicious > 0). Scanner outages, missing keys, or
+      # still-queued analyses warn and pass so infra flakiness never blocks
+      # the release; check the step log for details.
+      - name: VirusTotal verdict gate
+        if: always()
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          VT_ANALYSIS: ${{ steps.virustotal.outputs.analysis }}
+        run: |
+          if [ -z "$VT_API_KEY" ]; then
+            echo "::notice::VT_API_KEY missing, skipping verdict gate."
+            exit 0
+          fi
+          if [ -z "$VT_ANALYSIS" ]; then
+            echo "::notice::No VirusTotal analysis output (scan step may have failed), skipping verdict gate."
+            exit 0
+          fi
+          fail=0
+          IFS=',' read -ra pairs <<< "$VT_ANALYSIS"
+          for pair in "${pairs[@]}"; do
+            url="${pair##*=}"
+            id="$(basename "$url")"
+            echo "Checking analysis $id ..."
+            malicious=""
+            for i in $(seq 1 12); do
+              resp="$(curl -s --max-time 30 -H "x-apikey: $VT_API_KEY" \
+                "https://www.virustotal.com/api/v3/analyses/$id" || true)"
+              status="$(echo "$resp" | grep -o '"status":"[a-z]*"' | head -1 | cut -d'"' -f4)"
+              malicious="$(echo "$resp" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
+              if [ "$status" = "completed" ] && [ -n "$malicious" ]; then
+                break
+              fi
+              # Fallback: file-analysis URLs carry the file hash, not an
+              # analysis id — query the file endpoint for last stats instead.
+              fresp="$(curl -s --max-time 30 -H "x-apikey: $VT_API_KEY" \
+                "https://www.virustotal.com/api/v3/files/$id" || true)"
+              fmal="$(echo "$fresp" | grep -o '"malicious":[0-9]*' | head -1 | cut -d: -f2)"
+              if [ -n "$fmal" ]; then
+                malicious="$fmal"
+                break
+              fi
+              echo "Attempt $i/12: status=${status:-unknown}, waiting 30s..."
+              sleep 30
+            done
+            if [ -z "$malicious" ]; then
+              echo "::warning::Could not determine verdict for $id, skipping."
+              continue
+            fi
+            echo "malicious=$malicious for $id"
+            if [ "$malicious" -gt 0 ]; then
+              echo "::error::VirusTotal reports $malicious malicious detection(s) for $id"
+              fail=1
+            fi
+          done
+          exit $fail
+
       - name: Rename APK
         run: mv android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/apk/release/Milk_Bahi_v${{ env.VERSION }}.apk
 
       - name: Upload APK Artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Milk_Bahi_v${{ env.VERSION }}.apk
@@ -85,3 +147,7 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f android/release.jks

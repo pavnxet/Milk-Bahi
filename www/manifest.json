@@ -1,8 +1,11 @@
 {
   "name": "Milk Bahi",
   "short_name": "MilkBahi",
+  "id": "milk-bahi",
+  "scope": ".",
   "start_url": "index.html",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#f0f2f5",
   "theme_color": "#007aff",
   "description": "Daily milk tracking app for Mom.",
@@ -10,7 +13,8 @@
     {
       "src": "icons/icon.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any"
     }
   ]
 }

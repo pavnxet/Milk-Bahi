@@ -2,16 +2,24 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self'; img-src 'self' data: https://*.githubusercontent.com blob:;">
     <title>Milk Bahi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="theme-color" content="#007aff">
     <link rel="stylesheet" href="css/style.css">
     <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon.png">
 </head>
 <body>
+    <noscript>
+        <div style="padding: 40px 20px; text-align: center; font-family: sans-serif;">
+            <h2>Milk Bahi needs JavaScript</h2>
+            <p>Please enable JavaScript in your browser settings to track your daily milk.</p>
+        </div>
+    </noscript>
 
     <div id="app">
         <div id="sidebar-overlay" class="sidebar-overlay"></div>
@@ -41,8 +49,9 @@
             </div>
 
             <button id="share-app-btn" class="secondary" style="margin-bottom: 10px; background: var(--accent-color); color: white;">Share App</button>
-            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates v3.1</button>
-            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v3.1</p>
+            <button id="star-btn" class="secondary" style="margin-bottom: 10px;">⭐ Star on GitHub</button>
+            <button id="check-update-btn" class="secondary" style="margin-bottom: 20px;">Check for Updates v3.2.0</button>
+            <p style="font-size: 10px; color: var(--secondary-text); text-align: center;">Milk Bahi v3.2.0</p>
         </div>
 
         <!-- Main Dashboard -->
@@ -50,14 +59,14 @@
             <!-- Tab: Home -->
             <div id="tab-home" class="tab-content active">
                 <header>
-                    <button class="icon-btn" id="menu-btn" style="margin-right: 10px;">
+                    <button class="icon-btn" id="menu-btn" aria-label="Open menu" style="margin-right: 10px;">
                         <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
                     </button>
                     <div style="flex: 1;">
-                        <h2 id="current-month-display">February 2024</h2>
+                        <h2 id="current-month-display">Loading...</h2>
                         <p>Track your daily milk</p>
                     </div>
-                    <button class="icon-btn" id="settings-btn">⚙️</button>
+                    <button class="icon-btn" id="settings-btn" aria-label="Open settings" aria-haspopup="dialog">⚙️</button>
                 </header>
 
                 <!-- Summary Card -->
@@ -97,9 +106,10 @@
                     </div>
 
                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
-                        <button id="prev-day-btn" class="icon-btn" style="background: var(--bg-color); border: 1px solid var(--border-color); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">‹</button>
+                        <button id="prev-day-btn" class="icon-btn" aria-label="Previous day" style="background: var(--bg-color); border: 1px solid var(--border-color); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">‹</button>
+                        <label for="entry-date" class="sr-only">Entry date</label>
                         <input type="date" id="entry-date" style="margin-bottom: 0; flex: 1;">
-                        <button id="next-day-btn" class="icon-btn" style="background: var(--bg-color); border: 1px solid var(--border-color); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">›</button>
+                        <button id="next-day-btn" class="icon-btn" aria-label="Next day" style="background: var(--bg-color); border: 1px solid var(--border-color); width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-size: 18px;">›</button>
                     </div>
 
                     <!-- Cow Control -->
@@ -124,7 +134,7 @@
 
                     <!-- Note Input -->
                     <div style="margin-top: 15px;">
-                        <label style="font-size: 12px; color: var(--secondary-text);">Note (Optional)</label>
+                        <label for="entry-note" style="font-size: 12px; color: var(--secondary-text);">Note (Optional)</label>
                         <input type="text" id="entry-note" placeholder="e.g. Extra fat, Late delivery" style="margin-bottom: 0;">
                     </div>
 
@@ -137,9 +147,10 @@
                     <p style="font-size: 10px; color: var(--secondary-text); font-weight: 500; letter-spacing: 1px;">MADE WITH ❤️ BY PAVNEET</p>
                 </div>
 
-                <!-- WhatsApp FAB -->
-                <button class="fab" id="whatsapp-fab" title="Export to WhatsApp">
+                <!-- WhatsApp share pill -->
+                <button class="fab fab-extended" id="whatsapp-fab" title="Share this month report via WhatsApp" aria-label="Share this month report via WhatsApp">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.506-.669-.516-.173-.009-.371-.009-.57-.009-.198 0-.52.074-.792.372-.272.297-1.04 1.017-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
+                    <span>Share via WhatsApp</span>
                 </button>
             </div>
 
@@ -153,12 +164,12 @@
                     <div style="display: flex; flex-direction: column; gap: 8px;">
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
                             <div style="flex: 1;">
-                                <label style="font-size: 10px; color: var(--secondary-text);">From</label>
-                                <input type="date" id="analytics-start-date" style="font-size: 13px; padding: 6px; width: 100%; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                                <label for="analytics-start-date" style="font-size: 10px; color: var(--secondary-text);">From</label>
+                                <input type="date" id="analytics-start-date" style="font-size: 13px; padding: 6px; width: 100%; border-radius: 6px;">
                             </div>
                             <div style="flex: 1;">
-                                <label style="font-size: 10px; color: var(--secondary-text);">To</label>
-                                <input type="date" id="analytics-end-date" style="font-size: 13px; padding: 6px; width: 100%; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-color); color: var(--text-color);">
+                                <label for="analytics-end-date" style="font-size: 10px; color: var(--secondary-text);">To</label>
+                                <input type="date" id="analytics-end-date" style="font-size: 13px; padding: 6px; width: 100%; border-radius: 6px;">
                             </div>
                         </div>
                         <button id="analytics-filter-btn" style="padding: 8px; font-size: 13px; width: 100%;">Apply Date Filter</button>
@@ -217,6 +228,10 @@
                     <div id="history-list" class="history-list">
                         <!-- Items go here -->
                     </div>
+                    <!-- SRC-WIRING-NEEDED (Wave C / src agent): wire #history-load-more in src/app.js —
+                         paginate history rendering (e.g. 20 items/page), unhide this button when more
+                         items remain, append next page on click, hide when exhausted. -->
+                    <button id="history-load-more" class="secondary" style="display: none; margin-top: 12px;">Load more</button>
                 </div>
             </div>
 
@@ -238,45 +253,76 @@
         </div>
     </div>
 
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="modal">
-        <div class="modal-content glass-card">
+    <!-- Star Modal -->
+    <div id="star-overlay" class="settings-overlay"></div>
+    <div id="star-modal" class="modal">
+        <div class="modal-content glass-card" role="dialog" aria-modal="true" aria-labelledby="star-title" tabindex="-1">
             <div class="modal-header">
-                <h2>Settings</h2>
-                <button class="close-btn" id="close-settings">×</button>
+                <h2 id="star-title">⭐ Enjoying Milk Bahi?</h2>
+                <button class="close-btn" id="close-star" aria-label="Close">×</button>
+            </div>
+            <p style="font-size: 13px; margin-bottom: 12px;">
+                A GitHub star keeps this app free and tells others they can trust it.
+                It takes a minute, no computer needed:
+            </p>
+            <ol style="font-size: 13px; margin: 0 0 16px 20px; padding: 0; display: flex; flex-direction: column; gap: 8px;">
+                <li>Tap <b>Open GitHub page</b> below.</li>
+                <li>Sign in (free). New here? Tap <b>Sign up</b> and follow the steps.</li>
+                <li>At the top of the page, tap the <b>☆ Star</b> button. It turns yellow — done!</li>
+            </ol>
+            <div style="display: flex; gap: 10px;">
+                <button id="open-repo-btn">Open GitHub page</button>
+                <button class="secondary" id="later-star-btn">Later</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <!-- SRC-WIRING-NEEDED (Wave C / src agent): settings a11y behavior in src/app.js — on open, add
+         .active to #settings-overlay + #settings-modal and focus .modal-content; on close, remove
+         .active and restore focus to #settings-btn (or #menu-btn if opened from sidebar). Close on
+         Esc key (also add Esc-close for #sidebar) and on overlay click (#settings-overlay, or a click
+         whose target is #settings-modal itself). See report for the exact snippet. -->
+    <div id="settings-overlay" class="settings-overlay"></div>
+    <div id="settings-modal" class="modal">
+        <div class="modal-content glass-card" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
+            <div class="modal-header">
+                <h2 id="settings-title">Settings</h2>
+                <button class="close-btn" id="close-settings" aria-label="Close settings">×</button>
             </div>
 
             <div style="margin-bottom: 20px;">
-                <label>Cow Price (₹)</label>
+                <label for="price-cow-setting">Cow Price (₹)</label>
                 <input type="number" id="price-cow-setting" value="40">
             </div>
              <div style="margin-bottom: 20px;">
-                <label>Buffalo Price (₹)</label>
+                <label for="price-buffalo-setting">Buffalo Price (₹)</label>
                 <input type="number" id="price-buffalo-setting" value="55">
             </div>
 
             <div style="margin-bottom: 20px;">
-                <label>Monthly Target (L)</label>
+                <label for="monthly-target-setting">Monthly Target (L)</label>
                 <input type="number" id="monthly-target-setting" placeholder="Optional" value="">
                 <p style="font-size: 10px; color: var(--secondary-text);">Set a goal for total milk volume per month.</p>
             </div>
 
             <div style="margin-bottom: 20px;">
-                <label>Monthly Budget (₹)</label>
+                <label for="monthly-budget-setting">Monthly Budget (₹)</label>
                 <input type="number" id="monthly-budget-setting" placeholder="Optional" value="">
                 <p style="font-size: 10px; color: var(--secondary-text);">Set a max spending limit per month.</p>
             </div>
 
             <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
-                <label>Dark Mode</label>
+                <label for="theme-toggle">Dark Mode</label>
                 <input type="checkbox" id="theme-toggle">
             </div>
 
             <div style="margin-bottom: 20px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                    <label>Daily Reminder</label>
+                    <label for="reminder-toggle">Daily Reminder</label>
                     <input type="checkbox" id="reminder-toggle">
                 </div>
+                <label for="reminder-time" class="sr-only">Reminder time</label>
                 <input type="time" id="reminder-time" value="08:00" style="display: none;">
             </div>
 
@@ -289,7 +335,7 @@
             <div style="display: flex; gap: 10px;">
                 <button class="secondary" id="backup-btn">Backup</button>
                 <button class="secondary" id="restore-btn">Restore</button>
-                <input type="file" id="restore-input" style="display: none;" accept=".json">
+                <input type="file" id="restore-input" aria-label="Restore backup file" style="display: none;" accept=".json">
             </div>
         </div>
     </div>

@@ -1,11 +1,18 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { Toast } from '@capacitor/toast';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
 import { generateCSVContent } from './csvHelper.js';
+import { calculateEntry, parseLocalDate, sanitizeFilename, sanitizeData, isShareDismissed, todayKey, isFutureKey, shouldPromptStar } from './utils.js';
 
 // --- Constants ---
+const REPO_URL = "https://github.com/pavnxet/Milk-Bahi";
+const RELEASES_URL = "https://github.com/pavnxet/Milk-Bahi/releases";
+const STAR_COUNT_KEY = "milk_tracker_star_prompt_count";
+
+// --- Storage & settings ---
 const STORAGE_KEY = "milk_tracker_data";
 const PRICE_COW_KEY = "milk_tracker_price_cow";
 const PRICE_BUFFALO_KEY = "milk_tracker_price_buffalo";
@@ -17,16 +24,7 @@ const REMINDER_TIME_KEY = "milk_tracker_reminder_time";
 const DATA_FOLDER = "MilkTracker";
 const DATA_FILE = "data.json";
 
-// --- Helper Functions ---
-function calculateEntry(val, defaultCowPrice, defaultBuffaloPrice) {
-    const cow = val.cow || 0;
-    const buffalo = val.buffalo || 0;
-    const cowPrice = val.cowPrice !== undefined ? val.cowPrice : defaultCowPrice;
-    const buffaloPrice = val.buffaloPrice !== undefined ? val.buffaloPrice : defaultBuffaloPrice;
-    const cost = (cow * cowPrice) + (buffalo * buffaloPrice);
-    return { cow, buffalo, cowPrice, buffaloPrice, cost };
-}
-
+// --- Helpers ---
 function calculateTotals(entries, defaultCowPrice, defaultBuffaloPrice) {
     let totalCow = 0;
     let totalBuff = 0;
@@ -41,6 +39,10 @@ function calculateTotals(entries, defaultCowPrice, defaultBuffaloPrice) {
 
     return { totalCow, totalBuff, totalCost };
 }
+
+// Write mutex: FS is the source of truth; concurrent saves are serialized
+// through this promise chain so no write can clobber another.
+let saveChain = Promise.resolve();
 
 // --- State ---
 let state = {
@@ -159,8 +161,9 @@ async function init() {
         reminderTimeInput.value = savedTime;
     }
 
-    // Set today's date
+    // Set today's date (and never allow future entry dates)
     dateInput.value = state.currentDate;
+    dateInput.max = todayKey();
     priceCowInput.value = state.cowPrice;
     priceBuffaloInput.value = state.buffaloPrice;
     if (state.monthlyTarget > 0) monthlyTargetInput.value = state.monthlyTarget;
@@ -173,6 +176,14 @@ async function init() {
     // Init Dashboard directly
     showDashboard();
     await loadData();
+    renderDate(parseLocalDate(state.currentDate));
+    if (state.reminderEnabled) {
+        try {
+            await scheduleNotification();
+        } catch (e) {
+            console.error("Failed to re-schedule reminder on init", e);
+        }
+    }
 }
 
 function showDashboard() {
@@ -200,6 +211,8 @@ function checkAndShowCopyYesterday(currentDateStr) {
         copyYesterdayBtn.style.display = 'block';
         copyYesterdayBtn.onclick = () => {
             const yEntry = state.data[yStr];
+            // Intent: copy yesterday's volumes only — the note stays blank and
+            // prices are stamped at save time from current settings, not copied.
             currentCow = yEntry.cow || 0;
             currentBuff = yEntry.buffalo || 0;
             // Don't copy note
@@ -230,51 +243,73 @@ async function loadData() {
             directory: Directory.Documents,
             encoding: Encoding.UTF8,
         });
-        state.data = JSON.parse(result.data);
+        const parsed = JSON.parse(result.data);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            state.data = {};
+        } else {
+            const hadLegacy = Object.values(parsed).some((v) => typeof v === 'number');
+            state.data = sanitizeData(parsed);
+            // Persist migration when legacy number-format entries were converted.
+            if (hadLegacy) await saveDataToDisk();
+        }
     } catch (e) {
         console.log("FS Load failed, trying LS", e);
         // Fallback
         const localData = localStorage.getItem(STORAGE_KEY);
         if (localData) {
-            state.data = JSON.parse(localData);
-            saveDataToDisk();
-        }
-    }
-
-    // Migration Logic: Convert old number format to object format
-    for (const [date, val] of Object.entries(state.data)) {
-        if (typeof val === 'number') {
-            state.data[date] = { cow: val, buffalo: 0 };
+            try {
+                const parsed = JSON.parse(localData);
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    const hadLegacy = Object.values(parsed).some((v) => typeof v === 'number');
+                    state.data = sanitizeData(parsed);
+                    // Persist migration when legacy number-format entries were converted.
+                    if (hadLegacy) await saveDataToDisk();
+                } else {
+                    state.data = {};
+                }
+            } catch (e2) {
+                console.error("LS Load failed (corrupt JSON), starting empty", e2);
+                state.data = {};
+            }
         }
     }
 
     // Load today's data if exists
     const today = dateInput.value;
-    if (state.data[today]) {
-        currentCow = state.data[today].cow || 0;
-        currentBuff = state.data[today].buffalo || 0;
-        if (state.data[today].note) entryNoteInput.value = state.data[today].note;
-        updateDisplay();
-    }
-
-    checkAndShowCopyYesterday(today);
+    loadEditorForDate(today);
 
     renderSummary();
     renderFullHistory();
 }
 
-async function saveDataToDisk() {
+async function writeDataOnce() {
+    // Dual-write: FS is the source of truth, localStorage is the fallback
+    // mirror. Each store has its own try/catch so one failing never
+    // blocks the other.
+    const payload = JSON.stringify(state.data);
     try {
         await Filesystem.writeFile({
             path: `${DATA_FOLDER}/${DATA_FILE}`,
-            data: JSON.stringify(state.data),
+            data: payload,
             directory: Directory.Documents,
             encoding: Encoding.UTF8,
         });
     } catch (e) {
         console.error("FS Save failed", e);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.data));
     }
+    try {
+        localStorage.setItem(STORAGE_KEY, payload);
+    } catch (e) {
+        console.error("LS Save failed", e);
+    }
+}
+
+function saveDataToDisk() {
+    const run = saveChain.then(writeDataOnce);
+    // Advance the chain regardless of outcome; the release happens via
+    // this reassignment so a failed write never blocks later saves.
+    saveChain = run.catch(() => {});
+    return run;
 }
 
 async function saveData(date, qty) {
@@ -294,6 +329,10 @@ async function deleteEntry(date) {
     if (confirm(`Delete entry for ${date}?`)) {
         delete state.data[date];
         await saveDataToDisk();
+        if (dateInput.value === date) {
+            // Deleted date is visible: reset the editor to a blank entry.
+            loadEditorForDate(dateInput.value);
+        }
         renderSummary();
         renderFullHistory();
     }
@@ -308,16 +347,26 @@ function updateDisplay() {
     qtyBuffDisplay.innerText = currentBuff.toFixed(1);
 }
 
-decCowBtn.addEventListener('click', () => { if (currentCow > 0) currentCow -= 0.5; updateDisplay(); });
-incCowBtn.addEventListener('click', () => { currentCow += 0.5; updateDisplay(); });
+decCowBtn.addEventListener('click', () => { currentCow = Math.max(0, Math.round((currentCow - 0.5) * 2) / 2); updateDisplay(); });
+incCowBtn.addEventListener('click', () => { currentCow = Math.max(0, Math.round((currentCow + 0.5) * 2) / 2); updateDisplay(); });
 
-decBuffBtn.addEventListener('click', () => { if (currentBuff > 0) currentBuff -= 0.5; updateDisplay(); });
-incBuffBtn.addEventListener('click', () => { currentBuff += 0.5; updateDisplay(); });
+decBuffBtn.addEventListener('click', () => { currentBuff = Math.max(0, Math.round((currentBuff - 0.5) * 2) / 2); updateDisplay(); });
+incBuffBtn.addEventListener('click', () => { currentBuff = Math.max(0, Math.round((currentBuff + 0.5) * 2) / 2); updateDisplay(); });
 
 
 saveBtn.addEventListener('click', async () => {
     const date = dateInput.value;
     if (!date) return alert("Please select a date");
+    if (isFutureKey(date)) {
+        try {
+            await Toast.show({ text: 'Future entries are not allowed' });
+        } catch (_) {
+            alert("Future entries are not allowed");
+        }
+        dateInput.value = todayKey();
+        loadEditorForDate(dateInput.value);
+        return;
+    }
     if (currentCow === 0 && currentBuff === 0) return alert("Please add some milk!");
 
     const note = entryNoteInput.value.trim();
@@ -333,9 +382,44 @@ function renderDate(date) {
     const options = { month: 'long', year: 'numeric' };
     currentMonthDisplay.innerText = date.toLocaleDateString('en-US', options);
 }
+// Exported so init() (and external callers) can render the month header.
+export { renderDate };
+
+function loadEditorForDate(dateStr) {
+    clampDateToToday(dateStr);
+    renderDate(parseLocalDate(dateInput.value));
+    const key = dateInput.value;
+
+    // Load data for this date
+    if (state.data[key]) {
+        const entry = state.data[key];
+        currentCow = entry.cow || 0;
+        currentBuff = entry.buffalo || 0;
+        entryNoteInput.value = entry.note || '';
+    } else {
+        currentCow = 0;
+        currentBuff = 0;
+        entryNoteInput.value = '';
+    }
+
+    checkAndShowCopyYesterday(key);
+
+    updateDisplay();
+    renderSummary();
+}
+
+// Future dates are not allowed: snap the picker back to today and keep the
+// next-day button disabled while today is selected. Accepts an optional
+// candidate value (used by callers that just assigned dateInput.value).
+function clampDateToToday(candidate) {
+    const today = todayKey();
+    dateInput.max = today;
+    const value = candidate !== undefined ? candidate : dateInput.value;
+    if (value > today) dateInput.value = today;
+    nextDayBtn.disabled = dateInput.value >= today;
+}
 
 function getMonthData() {
-    const selectedDate = new Date(dateInput.value);
     const [year, month] = dateInput.value.split('-');
     const prefix = `${year}-${month}`;
 
@@ -348,8 +432,8 @@ function renderSummary() {
 
     const { totalCow, totalBuff, totalCost } = calculateTotals(entries, state.cowPrice, state.buffaloPrice);
 
-    totalCowEl.innerText = `${totalCow}L`;
-    totalBuffaloEl.innerText = `${totalBuff}L`;
+    totalCowEl.innerText = `${totalCow.toFixed(1)}L`;
+    totalBuffaloEl.innerText = `${totalBuff.toFixed(1)}L`;
     totalCostEl.innerText = `₹${totalCost.toFixed(0)}`;
 
     // Goal Logic
@@ -367,141 +451,169 @@ function renderSummary() {
     } else {
         goalSection.style.display = 'none';
     }
+
+    // Budget tracking (D1): spent-vs-budget line + red total when over budget.
+    totalCostEl.style.color = '';
+    if (state.monthlyBudget > 0) {
+        goalSection.style.display = 'block';
+        const budgetLine = `Budget: Rs.${totalCost.toFixed(0)} / Rs.${state.monthlyBudget}`;
+        goalText.innerText = state.monthlyTarget > 0 ? `${goalText.innerText} • ${budgetLine}` : budgetLine;
+        if (totalCost > state.monthlyBudget) totalCostEl.style.color = 'red';
+    }
 }
 
+// History pagination (Wave C): page size + visible count. Re-render resets
+// to page 1; the Load-more button appends the next page (see wiring section
+// at the end of this file).
+const HISTORY_PAGE_SIZE = 60;
+let historyVisibleCount = HISTORY_PAGE_SIZE;
+
+function createHistoryItem(date, qty) {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.style.alignItems = 'center';
+
+    const dateSpan = document.createElement('span');
+    dateSpan.className = 'history-date';
+    dateSpan.textContent = new Date(date + 'T00:00:00').toLocaleDateString();
+
+    const rightDiv = document.createElement('div');
+    rightDiv.style.display = 'flex';
+    rightDiv.style.alignItems = 'center';
+    rightDiv.style.gap = '10px';
+
+    const detailsDiv = document.createElement('div');
+    detailsDiv.style.display = 'flex';
+    detailsDiv.style.flexDirection = 'column';
+    detailsDiv.style.alignItems = 'flex-end';
+
+    const amountSpan = document.createElement('span');
+    amountSpan.className = 'history-amount';
+    const cowQty = qty.cow || 0;
+    const buffQty = qty.buffalo || 0;
+
+    let text = '';
+    if (cowQty > 0) text += `🐄${cowQty}L `;
+    if (buffQty > 0) text += `🐃${buffQty}L`;
+    if (text === '') text = '0L';
+
+    amountSpan.textContent = text;
+    amountSpan.style.fontSize = '12px';
+    detailsDiv.appendChild(amountSpan);
+
+    // Show price if stored and different from current? Maybe just show cost.
+    // For simplicity, stick to volume.
+
+    if (qty.note) {
+        const noteSpan = document.createElement('span');
+        noteSpan.innerText = qty.note;
+        noteSpan.style.fontSize = '10px';
+        noteSpan.style.color = 'var(--secondary-text)';
+        detailsDiv.appendChild(noteSpan);
+    }
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.innerHTML = '🗑️';
+    deleteBtn.className = 'icon-btn';
+    deleteBtn.style.padding = '4px';
+    deleteBtn.style.fontSize = '16px';
+    deleteBtn.onclick = (e) => {
+         e.stopPropagation();
+         deleteEntry(date);
+    };
+
+    rightDiv.appendChild(detailsDiv);
+    rightDiv.appendChild(deleteBtn);
+
+    item.appendChild(dateSpan);
+    item.appendChild(rightDiv);
+
+    return item;
+}
+
+function updateHistoryLoadMore(total) {
+    const btn = document.getElementById('history-load-more');
+    if (!btn) return;
+    btn.style.display = historyVisibleCount < total ? 'block' : 'none';
+}
+
+let historyDirty = false;
+
 function renderFullHistory() {
-    // Show ALL history
+    // Skip the rebuild while the History tab is hidden; the tab switch
+    // re-renders on demand (saves a full DOM rebuild on every save/delete).
+    const tabHistory = document.getElementById('tab-history');
+    if (tabHistory && !tabHistory.classList.contains('active')) {
+        historyDirty = true;
+        return;
+    }
+    historyDirty = false;
+    // Paginated: show newest page first; Load-more appends the rest.
+    historyVisibleCount = HISTORY_PAGE_SIZE;
     const entries = Object.entries(state.data).sort((a, b) => b[0].localeCompare(a[0]));
     historyListEl.innerHTML = '';
 
     const fragment = document.createDocumentFragment();
 
-    entries.forEach(([date, qty]) => {
-        const item = document.createElement('div');
-        item.className = 'history-item';
-        item.style.alignItems = 'center';
-
-        const dateSpan = document.createElement('span');
-        dateSpan.className = 'history-date';
-        dateSpan.textContent = new Date(date + 'T00:00:00').toLocaleDateString();
-
-        const rightDiv = document.createElement('div');
-        rightDiv.style.display = 'flex';
-        rightDiv.style.alignItems = 'center';
-        rightDiv.style.gap = '10px';
-
-        const detailsDiv = document.createElement('div');
-        detailsDiv.style.display = 'flex';
-        detailsDiv.style.flexDirection = 'column';
-        detailsDiv.style.alignItems = 'flex-end';
-
-        const amountSpan = document.createElement('span');
-        amountSpan.className = 'history-amount';
-        const cowQty = qty.cow || 0;
-        const buffQty = qty.buffalo || 0;
-
-        let text = '';
-        if (cowQty > 0) text += `🐄${cowQty}L `;
-        if (buffQty > 0) text += `🐃${buffQty}L`;
-        if (text === '') text = '0L';
-
-        amountSpan.textContent = text;
-        amountSpan.style.fontSize = '12px';
-        detailsDiv.appendChild(amountSpan);
-
-        // Show price if stored and different from current? Maybe just show cost.
-        // For simplicity, stick to volume.
-
-        if (qty.note) {
-            const noteSpan = document.createElement('span');
-            noteSpan.innerText = qty.note;
-            noteSpan.style.fontSize = '10px';
-            noteSpan.style.color = 'var(--secondary-text)';
-            detailsDiv.appendChild(noteSpan);
-        }
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.innerHTML = '🗑️';
-        deleteBtn.className = 'icon-btn';
-        deleteBtn.style.padding = '4px';
-        deleteBtn.style.fontSize = '16px';
-        deleteBtn.onclick = (e) => {
-             e.stopPropagation();
-             deleteEntry(date);
-        };
-
-        rightDiv.appendChild(detailsDiv);
-        rightDiv.appendChild(deleteBtn);
-
-        item.appendChild(dateSpan);
-        item.appendChild(rightDiv);
-
-        fragment.appendChild(item);
+    entries.slice(0, historyVisibleCount).forEach(([date, qty]) => {
+        fragment.appendChild(createHistoryItem(date, qty));
     });
 
     historyListEl.appendChild(fragment);
+    updateHistoryLoadMore(entries.length);
 }
 
 dateInput.addEventListener('change', () => {
-    const date = dateInput.value;
-    renderDate(new Date(date + 'T00:00:00'));
-
-    // Load data for this date
-    if (state.data[date]) {
-        const entry = state.data[date];
-        currentCow = entry.cow || 0;
-        currentBuff = entry.buffalo || 0;
-        entryNoteInput.value = entry.note || '';
-    } else {
-        currentCow = 0;
-        currentBuff = 0;
-        entryNoteInput.value = '';
-    }
-
-    checkAndShowCopyYesterday(date);
-
-    updateDisplay();
-    renderSummary();
+    loadEditorForDate(dateInput.value);
 });
 
 prevDayBtn.addEventListener('click', () => {
     const d = new Date(dateInput.value); // UTC Midnight
     d.setUTCDate(d.getUTCDate() - 1);
     dateInput.value = d.toISOString().split('T')[0];
-    dateInput.dispatchEvent(new Event('change'));
+    loadEditorForDate(dateInput.value);
 });
 
 nextDayBtn.addEventListener('click', () => {
     const d = new Date(dateInput.value); // UTC Midnight
     d.setUTCDate(d.getUTCDate() + 1);
     dateInput.value = d.toISOString().split('T')[0];
-    dateInput.dispatchEvent(new Event('change'));
+    loadEditorForDate(dateInput.value);
 });
 
-// --- Settings Logic ---
-settingsBtn.addEventListener('click', () => settingsModal.classList.add('active'));
-closeSettingsBtn.addEventListener('click', () => settingsModal.classList.remove('active'));
+// --- Settings Logic (Wave C wiring: open/close via openSettings/closeSettings
+// so the overlay, focus-in and focus-restore stay in sync) ---
+settingsBtn.addEventListener('click', () => openSettings());
+closeSettingsBtn.addEventListener('click', () => closeSettings());
 
 priceCowInput.addEventListener('change', (e) => {
-    state.cowPrice = parseFloat(e.target.value);
+    const v = parseFloat(e.target.value);
+    if (Number.isNaN(v)) { e.target.value = state.cowPrice; return; }
+    state.cowPrice = v;
     localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
     renderSummary();
 });
 
 priceBuffaloInput.addEventListener('change', (e) => {
-    state.buffaloPrice = parseFloat(e.target.value);
+    const v = parseFloat(e.target.value);
+    if (Number.isNaN(v)) { e.target.value = state.buffaloPrice; return; }
+    state.buffaloPrice = v;
     localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
     renderSummary();
 });
 
 monthlyTargetInput.addEventListener('change', (e) => {
-    state.monthlyTarget = parseFloat(e.target.value) || 0;
+    const v = parseFloat(e.target.value);
+    if (Number.isNaN(v)) { e.target.value = state.monthlyTarget || ''; return; }
+    state.monthlyTarget = v || 0;
     localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
     renderSummary();
 });
 
 monthlyBudgetInput.addEventListener('change', (e) => {
-    state.monthlyBudget = parseFloat(e.target.value) || 0;
+    const v = parseFloat(e.target.value);
+    if (Number.isNaN(v)) { e.target.value = state.monthlyBudget || ''; return; }
+    state.monthlyBudget = v || 0;
     localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
     renderSummary(); // Re-render summary (and indirectly analytics if active)
 });
@@ -583,6 +695,9 @@ reminderTimeInput.addEventListener('change', async (e) => {
 
 // --- Backup & Restore Logic ---
 backupBtn.addEventListener('click', async () => {
+    const d = new Date();
+    const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey}.json`);
     try {
         const backupObject = {
             version: 1,
@@ -600,7 +715,6 @@ backupBtn.addEventListener('click', async () => {
         };
 
         const dataStr = JSON.stringify(backupObject, null, 2);
-        const fileName = `milk-tracker-backup-${state.currentDate}.json`;
 
         // Write to cache or documents
         const result = await Filesystem.writeFile({
@@ -618,7 +732,15 @@ backupBtn.addEventListener('click', async () => {
             dialogTitle: 'Save Backup'
         });
 
+        // Share succeeded: delete the temp Cache file.
+        try {
+            await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
+        } catch (cleanupErr) {
+            console.warn("Backup temp cleanup failed", cleanupErr);
+        }
+
     } catch (e) {
+        if (isShareDismissed(e)) return; // User cancelled the share sheet: stay silent.
         console.error("Backup failed", e);
         // Fallback to browser download if Share fails (e.g. desktop)
         const backupObject = {
@@ -640,7 +762,7 @@ backupBtn.addEventListener('click', async () => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `milk-tracker-backup-${state.currentDate}.json`;
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -660,113 +782,101 @@ restoreInput.addEventListener('change', (e) => {
     reader.onload = async (event) => {
         try {
             const imported = JSON.parse(event.target.result);
-            if (!imported || typeof imported !== 'object') throw new Error("Invalid JSON");
+            if (!imported || typeof imported !== 'object' || Array.isArray(imported)) throw new Error("Invalid JSON");
 
-            if (confirm("This will overwrite your current local data. Are you sure?")) {
-                // Determine if legacy (just data object) or new format (with settings)
-                let newData = {};
-                if (imported.data && imported.settings) {
-                    // New Format
-                    // Security: Validate and Sanitize 'data'
-                    if (typeof imported.data !== 'object') throw new Error("Invalid Data format");
+            // Explicit format detect: presence of 'data' or 'settings' means
+            // new-format backup. Never fall through to legacy parsing for it.
+            const isNewFormat = ('data' in imported) || ('settings' in imported);
+            let newData = {};
+            if (isNewFormat) {
+                if (!imported.data || typeof imported.data !== 'object' || Array.isArray(imported.data)) {
+                    throw new Error("Invalid Data format");
+                }
+                newData = sanitizeData(imported.data);
+            } else {
+                // Legacy Format: imported is just the data object itself.
+                // sanitizeData converts legacy numbers and keeps note/prices.
+                newData = sanitizeData(imported);
+            }
 
-                    const sanitizedData = {};
-                    for (const [key, val] of Object.entries(imported.data)) {
-                        // Key should be YYYY-MM-DD
-                        if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
+            const incomingCount = Object.keys(newData).length;
+            const currentCount = Object.keys(state.data).length;
+            const backupDate = imported.timestamp ? new Date(imported.timestamp).toLocaleString() : 'unknown date';
 
-                        // Val should be { cow: num, buffalo: num }
-                        if (typeof val !== 'object') continue;
+            if (incomingCount === 0 && currentCount > 0) {
+                // Refuse to wipe non-empty data without a second explicit confirm.
+                const wipe = confirm(`Backup from ${backupDate} has 0 valid entries (you currently have ${currentCount}). Restoring would ERASE all current data. Really wipe and restore?`);
+                if (!wipe) { restoreInput.value = ''; return; }
+            }
 
-                        const entry = {
-                            cow: typeof val.cow === 'number' ? val.cow : 0,
-                            buffalo: typeof val.buffalo === 'number' ? val.buffalo : 0,
-                            cowPrice: typeof val.cowPrice === 'number' ? val.cowPrice : undefined,
-                            buffaloPrice: typeof val.buffaloPrice === 'number' ? val.buffaloPrice : undefined
-                        };
-                        if (typeof val.note === 'string') entry.note = val.note; // Restore note
+            if (!confirm(`Restore backup from ${backupDate}? It has ${incomingCount} entries (you currently have ${currentCount}). This will overwrite your current local data. Are you sure?`)) {
+                restoreInput.value = '';
+                return;
+            }
 
-                        sanitizedData[key] = entry;
-                    }
-                    newData = sanitizedData;
-
-                    // Restore Settings with Validation
-                    if (typeof imported.settings.cowPrice === 'number') {
-                        state.cowPrice = imported.settings.cowPrice;
-                        localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
-                        priceCowInput.value = state.cowPrice;
-                    }
-                    if (typeof imported.settings.buffaloPrice === 'number') {
-                        state.buffaloPrice = imported.settings.buffaloPrice;
-                        localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
-                        priceBuffaloInput.value = state.buffaloPrice;
-                    }
-                    if (typeof imported.settings.monthlyTarget === 'number') {
-                        state.monthlyTarget = imported.settings.monthlyTarget;
-                        localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
-                        monthlyTargetInput.value = state.monthlyTarget;
-                    }
-                     if (typeof imported.settings.monthlyBudget === 'number') {
-                        state.monthlyBudget = imported.settings.monthlyBudget;
-                        localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
-                        monthlyBudgetInput.value = state.monthlyBudget;
-                    }
-
-                    // Restore Theme
-                    if (typeof imported.settings.isDark === 'boolean') {
-                        state.isDark = imported.settings.isDark;
-                        document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
-                        localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
-                        themeToggle.checked = state.isDark;
-                    }
-
-                    // Restore Reminder
-                    if (typeof imported.settings.reminderEnabled === 'boolean') {
-                         state.reminderEnabled = imported.settings.reminderEnabled;
-                         localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
-                         reminderToggle.checked = state.reminderEnabled;
-                         reminderTimeInput.style.display = state.reminderEnabled ? 'block' : 'none';
-                    }
-                     if (typeof imported.settings.reminderTime === 'string') {
-                         state.reminderTime = imported.settings.reminderTime;
-                         localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
-                         reminderTimeInput.value = state.reminderTime;
-                    }
-                    // Re-schedule notification if needed
-                    if (state.reminderEnabled) await scheduleNotification();
-                    else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
-
-                } else {
-                    // Legacy Format (imported is just the data object)
-                    // Sanitize legacy
-                    const sanitizedData = {};
-                    for (const [key, val] of Object.entries(imported)) {
-                         if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) continue;
-                         // Legacy might be number or object
-                         if (typeof val === 'number') {
-                             sanitizedData[key] = { cow: val, buffalo: 0 };
-                         } else if (typeof val === 'object') {
-                             sanitizedData[key] = {
-                                 cow: typeof val.cow === 'number' ? val.cow : 0,
-                                 buffalo: typeof val.buffalo === 'number' ? val.buffalo : 0
-                             };
-                         }
-                    }
-                    newData = sanitizedData;
+            if (isNewFormat) {
+                // Restore Settings with Validation
+                if (typeof imported.settings?.cowPrice === 'number') {
+                    state.cowPrice = imported.settings.cowPrice;
+                    localStorage.setItem(PRICE_COW_KEY, state.cowPrice);
+                    priceCowInput.value = state.cowPrice;
+                }
+                if (typeof imported.settings?.buffaloPrice === 'number') {
+                    state.buffaloPrice = imported.settings.buffaloPrice;
+                    localStorage.setItem(PRICE_BUFFALO_KEY, state.buffaloPrice);
+                    priceBuffaloInput.value = state.buffaloPrice;
+                }
+                if (typeof imported.settings?.monthlyTarget === 'number') {
+                    state.monthlyTarget = imported.settings.monthlyTarget;
+                    localStorage.setItem(MONTHLY_TARGET_KEY, state.monthlyTarget);
+                    monthlyTargetInput.value = state.monthlyTarget;
+                }
+                if (typeof imported.settings?.monthlyBudget === 'number') {
+                    state.monthlyBudget = imported.settings.monthlyBudget;
+                    localStorage.setItem(MONTHLY_BUDGET_KEY, state.monthlyBudget);
+                    monthlyBudgetInput.value = state.monthlyBudget;
                 }
 
-                state.data = newData;
-                await saveDataToDisk();
-                alert("Data and settings restored successfully!");
-                renderSummary();
-                renderFullHistory();
+                // Restore Theme
+                if (typeof imported.settings?.isDark === 'boolean') {
+                    state.isDark = imported.settings.isDark;
+                    document.body.setAttribute('data-theme', state.isDark ? 'dark' : 'light');
+                    localStorage.setItem(THEME_KEY, state.isDark ? 'dark' : 'light');
+                    themeToggle.checked = state.isDark;
+                }
+
+                // Restore Reminder
+                if (typeof imported.settings?.reminderEnabled === 'boolean') {
+                     state.reminderEnabled = imported.settings.reminderEnabled;
+                     localStorage.setItem(REMINDER_ENABLED_KEY, state.reminderEnabled);
+                     reminderToggle.checked = state.reminderEnabled;
+                     reminderTimeInput.style.display = state.reminderEnabled ? 'block' : 'none';
+                }
+                if (typeof imported.settings?.reminderTime === 'string') {
+                     state.reminderTime = imported.settings.reminderTime;
+                     localStorage.setItem(REMINDER_TIME_KEY, state.reminderTime);
+                     reminderTimeInput.value = state.reminderTime;
+                }
+                // Re-schedule notification if needed
+                if (state.reminderEnabled) await scheduleNotification();
+                else await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
             }
+
+            state.data = newData;
+            await saveDataToDisk();
+            alert("Data and settings restored successfully!");
+            loadEditorForDate(dateInput.value);
+            renderSummary();
+            renderFullHistory();
         } catch (err) {
             alert("Error reading file. Is it a valid backup?");
             console.error(err);
+        } finally {
+            restoreInput.value = '';
         }
     };
     reader.readAsText(file);
+    restoreInput.value = '';
 });
 
 
@@ -779,16 +889,18 @@ whatsappFab.addEventListener('click', () => {
     const [year, month] = dateInput.value.split('-');
     const monthName = new Date(dateInput.value).toLocaleString('default', { month: 'long' });
 
-    const text = `*Milk Report for ${monthName} ${year}* 🥛%0A` +
-                    `---------------------------%0A` +
-                    `Cow Milk: ${totalCow.toFixed(1)} L%0A` +
-                    `Buffalo Milk: ${totalBuff.toFixed(1)} L%0A` +
-                    `Total Cost: ₹${totalCost.toFixed(0)}%0A` +
-                    `---------------------------%0A` +
-                    `Shared from Milk Bahi%0A` +
-                    `Made with ❤️ by Pavneet`;
+    const text = `*Milk Report for ${monthName} ${year}* 🥛\n` +
+                    `---------------------------\n` +
+                    `Cow Milk: ${totalCow.toFixed(1)} L\n` +
+                    `Buffalo Milk: ${totalBuff.toFixed(1)} L\n` +
+                    `Total Cost: ₹${totalCost.toFixed(0)}\n` +
+                    `---------------------------\n` +
+                    `Shared from Milk Bahi\n` +
+                    `Made with ❤️ by Pavneet\n` +
+                    `Get the app: ${RELEASES_URL}`;
 
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    recordShare();
 });
 
 // --- Tabs Logic ---
@@ -814,6 +926,7 @@ navItems.forEach(item => {
 
         // Trigger renders
         if (targetId === 'tab-analytics') renderAnalytics();
+        if (targetId === 'tab-history' && historyDirty) renderFullHistory();
     });
 });
 
@@ -831,12 +944,17 @@ exportCsvBtn.addEventListener('click', exportToCSV);
 
 
 function filterDataByDateRange(data, startStr, endStr) {
-    const start = new Date(startStr);
-    const end = new Date(endStr);
+    const start = parseLocalDate(startStr);
+    const end = parseLocalDate(endStr);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+        alert("Please pick a valid date range (start must be on or before end).");
+        return [];
+    }
 
     // Sort chronological
     return Object.entries(data).filter(([dateStr, val]) => {
-        const d = new Date(dateStr);
+        const d = parseLocalDate(dateStr);
         return d >= start && d <= end;
     }).sort((a, b) => a[0].localeCompare(b[0]));
 }
@@ -915,6 +1033,10 @@ function renderAnalytics() {
     anaAvgDailyEl.innerText = `${avgDaily.toFixed(1)}L`;
     anaProjCostEl.innerText = `₹${totalCost.toFixed(0)}`;
     anaProjCostEl.style.color = 'var(--text-color)'; // Reset color
+    // Red when cost exceeds the prorated monthly budget for the shown days.
+    if (state.monthlyBudget > 0 && daysCount > 0 && totalCost > state.monthlyBudget * (daysCount / 30)) {
+        anaProjCostEl.style.color = 'red';
+    }
 
     // Peak Days
     const peak = calculatePeakDay(entries);
@@ -1045,7 +1167,7 @@ async function exportToCSV() {
     const csvContent = generateCSVContent(entries, state.cowPrice, state.buffaloPrice);
 
     try {
-        const fileName = `Milk_Report_${label.replace(/ /g, '_')}_${Date.now()}.csv`;
+        const fileName = sanitizeFilename(`Milk_Report_${label}_${Date.now()}.csv`);
 
         const result = await Filesystem.writeFile({
             path: fileName,
@@ -1059,17 +1181,28 @@ async function exportToCSV() {
             url: result.uri
         });
 
+        recordShare();
+
+        // Share succeeded: delete the temp Cache file.
+        try {
+            await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
+        } catch (cleanupErr) {
+            console.warn("CSV temp cleanup failed", cleanupErr);
+        }
+
     } catch (e) {
+        if (isShareDismissed(e)) return; // User cancelled the share sheet: stay silent.
         console.error("CSV Export Failed", e);
         // Browser fallback
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", `milk_report_${label.replace(/ /g, '_')}.csv`);
+        link.setAttribute("download", sanitizeFilename(`milk_report_${label}.csv`));
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     }
 }
 
@@ -1079,10 +1212,14 @@ async function exportToPDF() {
 
     const doc = new jsPDF();
 
+    // jsPDF standard fonts are WinAnsi: strip anything outside Latin-1 and
+    // use "Rs." consistently (the ₹ glyph is not in the base-14 fonts).
+    const pdfSafeText = (s) => String(s ?? '').replace(/₹/g, 'Rs.').replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ');
+
     doc.setFontSize(18);
-    doc.text(`Milk Report`, 14, 22);
+    doc.text(pdfSafeText(`Milk Report`), 14, 22);
     doc.setFontSize(12);
-    doc.text(label, 14, 28);
+    doc.text(pdfSafeText(label), 14, 28);
 
     // Headers Helper
     const printHeader = (yPos) => {
@@ -1118,16 +1255,26 @@ async function exportToPDF() {
          totalBuff += result.buffalo;
          totalCost += result.cost;
 
-         doc.text(date, 14, y);
-         doc.text(result.cow.toString(), 50, y);
-         doc.text(result.buffalo.toString(), 70, y);
-         doc.text(result.cost.toFixed(0), 90, y);
+         doc.text(pdfSafeText(date), 14, y);
+         doc.text(pdfSafeText(result.cow.toString()), 50, y);
+         doc.text(pdfSafeText(result.buffalo.toString()), 70, y);
+         doc.text(pdfSafeText(result.cost.toFixed(0)), 90, y);
          if (val.note) {
-             const cleanNote = val.note.length > 25 ? val.note.substring(0, 23) + '...' : val.note;
-             doc.text(cleanNote, 120, y);
+             // Wrap long notes; each wrapped line can trigger a page break.
+             const lines = doc.splitTextToSize(pdfSafeText(val.note), 80);
+             for (const line of lines) {
+                 if (y > 270) {
+                     doc.addPage();
+                     y = 20;
+                     printHeader(y);
+                     y += 8;
+                 }
+                 doc.text(line, 120, y);
+                 y += 7;
+             }
+         } else {
+             y += 7;
          }
-
-         y += 7;
     });
 
     // Summary Section at the End
@@ -1144,18 +1291,34 @@ async function exportToPDF() {
     doc.text("Summary", 14, y);
     y += 8;
     doc.setFontSize(12);
-    doc.text(`Total Cow Milk: ${totalCow.toFixed(1)} L`, 14, y);
+    doc.text(pdfSafeText(`Total Cow Milk: ${totalCow.toFixed(1)} L`), 14, y);
     y += 6;
-    doc.text(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`, 14, y);
+    doc.text(pdfSafeText(`Total Buffalo Milk: ${totalBuff.toFixed(1)} L`), 14, y);
     y += 6;
     doc.setFontSize(14);
     doc.setTextColor(255, 0, 0); // Red for cost
-    doc.text(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`, 14, y);
+    doc.text(pdfSafeText(`Grand Total Cost: Rs. ${totalCost.toFixed(0)}`), 14, y);
+    y += 8;
+    if (y > 260) {
+        doc.addPage();
+        y = 20;
+    }
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 255);
+    doc.textWithLink("Get the Milk Bahi app:", 14, y, { url: RELEASES_URL });
+    y += 6;
+    doc.textWithLink(RELEASES_URL, 14, y, { url: RELEASES_URL });
 
     // --- Output & Share ---
     try {
-        const base64Data = doc.output('datauristring').split(',')[1];
-        const fileName = `Milk_Report_${Date.now()}.pdf`;
+        // jsPDF 4.x dropped the 'base64' output type (returns null).
+        // Derive the payload from the data URI instead.
+        const dataUri = doc.output('datauristring');
+        const marker = ';base64,';
+        const markerIdx = dataUri.indexOf(marker);
+        if (markerIdx === -1) throw new Error('PDF encoding failed: no base64 payload');
+        const base64Data = dataUri.slice(markerIdx + marker.length);
+        const fileName = sanitizeFilename(`Milk_Report_${label}_${Date.now()}.pdf`);
 
         const result = await Filesystem.writeFile({
             path: fileName,
@@ -1168,10 +1331,20 @@ async function exportToPDF() {
             url: result.uri
         });
 
+        recordShare();
+
+        // Share succeeded: delete the temp Cache file.
+        try {
+            await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache });
+        } catch (cleanupErr) {
+            console.warn("PDF temp cleanup failed", cleanupErr);
+        }
+
     } catch (e) {
+        if (isShareDismissed(e)) return; // User cancelled the share sheet: stay silent.
         console.error("PDF Export Failed", e);
         // Browser fallback
-        doc.save(`milk_report.pdf`);
+        doc.save(sanitizeFilename(`milk_report_${label}.pdf`));
     }
 }
 
@@ -1263,4 +1436,130 @@ if (shareAppBtn) {
             }
         }
     });
+}
+
+// --- Wave C wiring: settings modal a11y + history Load-more ---
+// Reuses existing elements: #settings-modal, #settings-overlay, .modal-content
+// dialog, #settings-btn, #menu-btn, #sidebar, #sidebar-overlay. Vanilla
+// addEventListener style, no frameworks.
+const settingsOverlay = document.getElementById('settings-overlay');
+const settingsDialog = settingsModal ? settingsModal.querySelector('.modal-content') : null;
+let lastSettingsFocus = null;
+
+function openSettings() {
+    lastSettingsFocus = document.activeElement;
+    settingsModal.classList.add('active');
+    if (settingsOverlay) settingsOverlay.classList.add('active');
+    // Focus-in: move focus into the dialog so keyboard users land inside.
+    if (settingsDialog && typeof settingsDialog.focus === 'function') {
+        settingsDialog.focus();
+    } else if (closeSettingsBtn && typeof closeSettingsBtn.focus === 'function') {
+        closeSettingsBtn.focus();
+    }
+}
+
+function closeSettings() {
+    settingsModal.classList.remove('active');
+    if (settingsOverlay) settingsOverlay.classList.remove('active');
+    // Focus-restore: return focus to the opener (or #settings-btn fallback).
+    const target = lastSettingsFocus && document.contains(lastSettingsFocus)
+        ? lastSettingsFocus
+        : settingsBtn;
+    if (target && typeof target.focus === 'function') target.focus();
+    lastSettingsFocus = null;
+}
+
+if (settingsOverlay) {
+    settingsOverlay.addEventListener('click', () => closeSettings());
+}
+
+// Click whose target is #settings-modal itself (backdrop area) also closes.
+settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) closeSettings();
+});
+
+// Escape closes star/settings first, else the sidebar (existing closeSidebar).
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (starModal && starModal.classList.contains('active')) {
+        closeStarModal();
+    } else if (settingsModal.classList.contains('active')) {
+        closeSettings();
+    } else if (sidebar && sidebar.classList.contains('active')) {
+        closeSidebar();
+    }
+});
+
+const historyLoadMoreBtn = document.getElementById('history-load-more');
+if (historyLoadMoreBtn) {
+    historyLoadMoreBtn.addEventListener('click', () => {
+        const entries = Object.entries(state.data).sort((a, b) => b[0].localeCompare(a[0]));
+        historyVisibleCount += HISTORY_PAGE_SIZE;
+        const next = entries.slice(historyVisibleCount - HISTORY_PAGE_SIZE, historyVisibleCount);
+        const fragment = document.createDocumentFragment();
+        next.forEach(([date, qty]) => {
+            fragment.appendChild(createHistoryItem(date, qty));
+        });
+        historyListEl.appendChild(fragment);
+        updateHistoryLoadMore(entries.length);
+    });
+}
+
+// --- Star nudge: prompt every Nth successful report share, with a
+// beginner-friendly guide (most users have never used GitHub). ---
+const starModal = document.getElementById('star-modal');
+const starOverlay = document.getElementById('star-overlay');
+const starDialog = starModal ? starModal.querySelector('.modal-content') : null;
+const closeStarBtn = document.getElementById('close-star');
+const laterStarBtn = document.getElementById('later-star-btn');
+const openRepoBtn = document.getElementById('open-repo-btn');
+const starBtn = document.getElementById('star-btn');
+let lastStarFocus = null;
+
+function openStarModal() {
+    if (!starModal) return;
+    lastStarFocus = document.activeElement;
+    starModal.classList.add('active');
+    if (starOverlay) starOverlay.classList.add('active');
+    if (starDialog && typeof starDialog.focus === 'function') starDialog.focus();
+}
+
+function closeStarModal() {
+    if (!starModal) return;
+    starModal.classList.remove('active');
+    if (starOverlay) starOverlay.classList.remove('active');
+    const target = lastStarFocus && document.contains(lastStarFocus) ? lastStarFocus : starBtn;
+    if (target && typeof target.focus === 'function') target.focus();
+    lastStarFocus = null;
+}
+
+// Counts a successful report share; opens the star guide on cadence.
+function recordShare() {
+    let count = 0;
+    try {
+        count = parseInt(localStorage.getItem(STAR_COUNT_KEY) || '0', 10) || 0;
+        count += 1;
+        localStorage.setItem(STAR_COUNT_KEY, String(count));
+    } catch (_) {
+        return;
+    }
+    if (shouldPromptStar(count)) openStarModal();
+}
+
+if (closeStarBtn) closeStarBtn.addEventListener('click', () => closeStarModal());
+if (laterStarBtn) laterStarBtn.addEventListener('click', () => closeStarModal());
+if (starOverlay) starOverlay.addEventListener('click', () => closeStarModal());
+if (starModal) {
+    starModal.addEventListener('click', (e) => {
+        if (e.target === starModal) closeStarModal();
+    });
+}
+if (openRepoBtn) {
+    openRepoBtn.addEventListener('click', () => {
+        window.open(REPO_URL, '_blank');
+        closeStarModal();
+    });
+}
+if (starBtn) {
+    starBtn.addEventListener('click', () => openStarModal());
 }

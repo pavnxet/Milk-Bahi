@@ -1,6 +1,7 @@
         :root {
             --bg-color: #f0f2f5;
             --card-bg: rgba(255, 255, 255, 0.7);
+            --card-solid: #ffffff;
             --text-color: #1c1c1e;
             --accent-color: #007aff;
             --secondary-text: #8e8e93;
@@ -10,21 +11,29 @@
             --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --success-color: #34c759;
             --danger-color: #ff3b30;
+            --input-bg: rgba(255,255,255,0.5);
+            --input-border: rgba(0,0,0,0.1);
         }
 
         [data-theme="dark"] {
             --bg-color: #1c1c1e;
             --card-bg: rgba(44, 44, 46, 0.7);
+            --card-solid: #2c2c2e;
             --text-color: #ffffff;
             --accent-color: #0a84ff;
             --secondary-text: #aeaeb2;
             --border-color: rgba(255, 255, 255, 0.1);
             --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            --input-bg: rgba(0,0,0,0.2);
+            --input-border: rgba(255,255,255,0.1);
         }
 
         * {
             box-sizing: border-box;
             -webkit-tap-highlight-color: transparent;
+        }
+
+        *:not(input):not(textarea) {
             -webkit-user-select: none;
             user-select: none;
         }
@@ -53,16 +62,23 @@
             position: relative;
         }
 
-        /* Glassmorphism Card */
+        /* Frosted-look card without backdrop-filter (backdrop blur forces
+           full-surface repaints on scroll on low-end GPUs; a static layered
+           gradient gives the same feel for free). */
         .glass-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%),
+                var(--card-solid);
             border-radius: 20px;
             border: var(--glass-border);
             box-shadow: var(--shadow);
             padding: 20px;
             margin-bottom: 16px;
+        }
+        [data-theme="dark"] .glass-card {
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 45%),
+                var(--card-solid);
         }
 
         h1, h2, h3 { margin: 0; font-weight: 600; }
@@ -70,31 +86,16 @@
         h2 { font-size: 20px; margin-bottom: 10px; }
         p { margin: 0; color: var(--secondary-text); }
 
-        /* Login Screen */
-        #login-screen {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 80vh;
-            text-align: center;
-        }
-
         input[type="password"], input[type="text"], input[type="number"], input[type="date"], input[type="time"] {
             width: 100%;
             padding: 15px;
             border-radius: 12px;
-            border: 1px solid rgba(0,0,0,0.1);
-            background: rgba(255,255,255,0.5);
+            border: 1px solid var(--input-border);
+            background: var(--input-bg);
             font-size: 16px;
             margin-bottom: 15px;
             color: var(--text-color);
             transition: border-color 0.2s ease, background 0.2s ease;
-        }
-
-        [data-theme="dark"] input {
-             background: rgba(0,0,0,0.2);
-             border-color: rgba(255,255,255,0.1);
         }
 
         button {
@@ -129,6 +130,10 @@
             cursor: pointer;
             color: var(--text-color);
             width: auto;
+        }
+        /* Day-nav at the today boundary (set via .disabled in JS). */
+        #next-day-btn:disabled, #prev-day-btn:disabled {
+            opacity: 0.35;
         }
 
         /* Stats Grid */
@@ -173,18 +178,11 @@
             justify-content: space-between;
             padding: 12px 0;
             border-bottom: 1px solid var(--border-color);
-            animation: slideIn 0.3s ease forwards;
-            opacity: 0;
-            transform: translateX(-10px);
+            /* Static list: the old per-item slideIn re-animated 60 nodes on
+               every save/delete/load. Off-screen rows skip rendering. */
+            content-visibility: auto;
+            contain-intrinsic-size: auto 48px;
         }
-        @keyframes slideIn {
-            to { opacity: 1; transform: translateX(0); }
-        }
-        .history-item:nth-child(1) { animation-delay: 0.05s; }
-        .history-item:nth-child(2) { animation-delay: 0.1s; }
-        .history-item:nth-child(3) { animation-delay: 0.15s; }
-        .history-item:nth-child(4) { animation-delay: 0.2s; }
-        .history-item:nth-child(5) { animation-delay: 0.25s; }
 
         .history-item:last-child { border-bottom: none; }
         .history-date { font-weight: 500; }
@@ -208,6 +206,17 @@
             z-index: 100;
             border: none;
         }
+        /* Extended pill: icon + label so the action is self-explanatory. */
+        .fab-extended {
+            width: auto;
+            height: 56px;
+            border-radius: 28px;
+            padding: 0 20px 0 16px;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .fab-extended span { white-space: nowrap; }
 
         /* Modal */
         .modal {
@@ -217,9 +226,19 @@
             background: rgba(0,0,0,0.5);
             align-items: center;
             justify-content: center;
-            z-index: 1000;
+            z-index: 1300;
         }
         .modal.active { display: flex; }
+        /* Dedicated dim layer for the settings modal (toggled with .active by src wiring).
+           Sits above bottom-nav/sidebar (1000-1002), below the modal itself (1300). */
+        .settings-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1250;
+            display: none;
+        }
+        .settings-overlay.active { display: block; }
         .modal-content {
             background: var(--bg-color);
             padding: 20px;
@@ -233,6 +252,21 @@
         .close-btn { background: none; border: none; font-size: 24px; color: var(--text-color); width: auto; padding: 0; }
 
         .hidden { display: none !important; }
+
+        /* Visually hidden but screen-reader accessible (used for input labels). */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        #history-load-more { margin-top: 12px; }
 
         /* Tabs */
         .tab-content {
@@ -255,9 +289,7 @@
             bottom: 0;
             left: 0;
             width: 100%;
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: var(--card-solid);
             border-top: var(--glass-border);
             display: flex;
             justify-content: space-around;

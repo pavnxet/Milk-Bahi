@@ -2,6 +2,7 @@
   "appId": "com.milkbahi.app",
   "appName": "Milk Bahi",
   "webDir": "www",
+  "backgroundColor": "#f0f2f5",
   "server": {
     "cleartext": false
   }
