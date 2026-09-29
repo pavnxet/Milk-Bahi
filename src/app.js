@@ -6,7 +6,6 @@ import Chart from 'chart.js/auto';
 import { jsPDF } from 'jspdf';
 import { generateCSVContent } from './csvHelper.js';
 import { APP_VERSION } from './version.js';
-import { driveSignIn, driveUpload, driveFindNewest, driveDownload } from './driveBackup.js';
 import { calculateEntry, parseLocalDate, sanitizeFilename, sanitizeData, isShareDismissed, todayKey, isFutureKey, shouldPromptStar, shouldNotifyRelease, groupEntriesByMonth, monthLabel, formatDDMMYYYY, formatTime12h } from './utils.js';
 
 // --- Constants ---
@@ -1808,67 +1807,5 @@ if (notifOverlay) notifOverlay.addEventListener('click', dismissNotifsModal);
 if (notifModal) {
     notifModal.addEventListener('click', (e) => {
         if (e.target === notifModal) dismissNotifsModal();
-    });
-}
-
-// --- Google Drive backup (settings section) ---
-// Sign-in token lives only in memory; Drive REST goes through src/driveBackup.js.
-const driveStatusEl = document.getElementById('drive-status');
-const driveSigninBtn = document.getElementById('drive-signin-btn');
-const driveBackupBtn = document.getElementById('drive-backup-btn');
-const driveRestoreBtn = document.getElementById('drive-restore-btn');
-let driveToken = null;
-
-function setDriveStatus(text) {
-    if (driveStatusEl) driveStatusEl.textContent = text;
-}
-
-if (driveSigninBtn) {
-    driveSigninBtn.addEventListener('click', async () => {
-        try {
-            const { accessToken, email } = await driveSignIn();
-            driveToken = accessToken;
-            setDriveStatus(email ? `Signed in as ${email}` : 'Signed in');
-        } catch (e) {
-            if (e instanceof Error && isShareDismissed(e)) return; // user dismissed: stay silent
-            alert(e instanceof Error ? e.message : 'Google sign-in failed. Please try again.');
-        }
-    });
-}
-
-if (driveBackupBtn) {
-    driveBackupBtn.addEventListener('click', async () => {
-        if (!driveToken) return alert('Please sign in to Google Drive first.');
-        const fileName = sanitizeFilename(`milk-tracker-backup-${todayKey()}.json`);
-        try {
-            await driveUpload(fileName, JSON.stringify(buildBackupObject(), null, 2), driveToken);
-            alert(`Backup uploaded to Google Drive as ${fileName}.`);
-        } catch (e) {
-            alert(e instanceof Error ? e.message : 'Drive backup failed. Please try again.');
-        }
-    });
-}
-
-if (driveRestoreBtn) {
-    driveRestoreBtn.addEventListener('click', async () => {
-        if (!driveToken) return alert('Please sign in to Google Drive first.');
-        try {
-            const newest = await driveFindNewest(driveToken);
-            if (!newest) return alert('No Drive backups found.');
-            let imported;
-            try {
-                imported = JSON.parse(await driveDownload(newest.id, driveToken));
-            } catch (_) {
-                return alert('Downloaded backup is corrupt. Is it a valid backup?');
-            }
-            try {
-                await importBackupObject(imported);
-            } catch (err) {
-                alert('Error reading file. Is it a valid backup?');
-                console.error(err);
-            }
-        } catch (e) {
-            alert(e instanceof Error ? e.message : 'Drive restore failed. Please try again.');
-        }
     });
 }
